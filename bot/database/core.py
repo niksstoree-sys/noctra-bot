@@ -55,6 +55,7 @@ class Database:
         assert self.conn is not None
         migrations = [
             ("payment_methods", "image_url", "ALTER TABLE payment_methods ADD COLUMN image_url TEXT"),
+            ("categories", "emoji", "ALTER TABLE categories ADD COLUMN emoji TEXT"),
         ]
         for table, column, ddl in migrations:
             cursor = await self.conn.execute(f"PRAGMA table_info({table})")
