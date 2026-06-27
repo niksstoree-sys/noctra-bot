@@ -99,6 +99,31 @@ async def collect_dynamic_fields(
     await interaction.response.send_modal(first_modal)
 
 
+class ReviewTextModal(discord.ui.Modal):
+    """Final step of the button-only review flow -- the star rating is
+    already chosen via buttons before this opens, so this only asks for the
+    optional written part."""
+
+    review_text = discord.ui.TextInput(
+        label="Write a review (optional)",
+        style=discord.TextStyle.paragraph,
+        required=False,
+        max_length=500,
+        placeholder="Tell others about your experience...",
+    )
+
+    def __init__(
+        self,
+        title: str,
+        on_submit_callback: Callable[[discord.Interaction, str], Awaitable[None]],
+    ) -> None:
+        super().__init__(title=title[:45])
+        self._on_submit_callback = on_submit_callback
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await self._on_submit_callback(interaction, str(self.review_text.value or "").strip())
+
+
 class ReasonModal(discord.ui.Modal):
     """Reusable single-field modal for close/cancel/refund reasons."""
 
