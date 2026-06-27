@@ -110,6 +110,14 @@ If the customer has DMs disabled for the server, they get a clear ephemeral
 error telling them to enable "Allow direct messages from server members" and
 try again.
 
+**QRIS / QR code / logo images on a payment method:** `/payment add` and
+`/payment edit` take an `image_url` parameter -- set it to a hosted PNG/JPG/
+WebP of your QRIS code (or any payment logo) and it's shown full-size right
+inside the payment instructions embed the customer gets in their DM, so they
+can scan it immediately without leaving Discord. `instructions` (text) and
+`image_url` are independent -- use either one alone or both together (e.g.
+QR code image + a text line explaining the amount/reference to include).
+
 The `/shop` and `/buy` slash commands still work too (e.g. for someone who
 already knows the product name and wants a shortcut) -- they reuse the exact
 same browsing/purchase code as the buttons, so both paths stay in sync.
