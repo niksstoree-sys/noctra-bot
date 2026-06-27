@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS payment_methods (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     name             TEXT NOT NULL,
     instructions     TEXT,
+    image_url        TEXT,
     enabled          INTEGER NOT NULL DEFAULT 1,
     timeout_minutes  INTEGER NOT NULL DEFAULT 30,
     position         INTEGER NOT NULL DEFAULT 0,

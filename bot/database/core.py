@@ -44,7 +44,26 @@ class Database:
         assert self.conn is not None
         await self.conn.executescript(sql)
         await self.conn.commit()
+        await self._run_migrations()
         logger.info("Database schema ensured.")
+
+    async def _run_migrations(self) -> None:
+        """Lightweight forward-only migrations for columns added after a
+        table already existed in someone's deployed database. Each entry is
+        (table, column, ddl-fragment); skipped automatically if the column
+        is already there, so this is always safe to run on every startup."""
+        assert self.conn is not None
+        migrations = [
+            ("payment_methods", "image_url", "ALTER TABLE payment_methods ADD COLUMN image_url TEXT"),
+        ]
+        for table, column, ddl in migrations:
+            cursor = await self.conn.execute(f"PRAGMA table_info({table})")
+            columns = {row[1] for row in await cursor.fetchall()}
+            await cursor.close()
+            if column not in columns:
+                await self.conn.execute(ddl)
+                await self.conn.commit()
+                logger.info("Migration applied: %s.%s", table, column)
 
     async def execute(self, query: str, params: tuple = ()) -> int | None:
         assert self.conn is not None
