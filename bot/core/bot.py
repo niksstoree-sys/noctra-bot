@@ -22,6 +22,7 @@ EXTENSIONS = (
     "bot.cogs.order",
     "bot.cogs.ticket",
     "bot.cogs.review",
+    "bot.cogs.payment_proof",
     "bot.cogs.tasks",
 )
 
@@ -45,6 +46,7 @@ class NoctraBot(commands.Bot):
                 logger.exception("Failed to load extension: %s", extension)
 
         self._register_persistent_views()
+        self._register_dynamic_items()
         setup_error_handler(self)
 
         if config.guild_id:
@@ -59,20 +61,23 @@ class NoctraBot(commands.Bot):
     def _register_persistent_views(self) -> None:
         # Imported lazily to avoid import-order issues with bot.db being used
         # inside view callbacks before the cog package is fully loaded.
-        from bot.ui.views import (
-            OpenTicketPanelView,
-            ReviewPromptView,
-            ShopPanelView,
-            TicketControlView,
-            TicketReopenView,
-        )
+        from bot.ui.views import OpenTicketPanelView, ShopPanelView, TicketControlView, TicketReopenView
 
         self.add_view(ShopPanelView())
         self.add_view(TicketControlView())
         self.add_view(TicketReopenView())
         self.add_view(OpenTicketPanelView())
-        self.add_view(ReviewPromptView())
         logger.info("Persistent views registered.")
+
+    def _register_dynamic_items(self) -> None:
+        # Dynamic items (order_id/rating encoded directly in the custom_id)
+        # are registered by class, not instance -- discord.py reconstructs
+        # the right button on demand whenever a matching custom_id comes in,
+        # so this survives restarts with no per-order bookkeeping needed.
+        from bot.ui.views import OrderActionButton, ReviewStartButton
+
+        self.add_dynamic_items(OrderActionButton, ReviewStartButton)
+        logger.info("Dynamic items registered.")
 
     async def on_ready(self) -> None:
         logger.info("Logged in as %s (ID: %s)", self.user, self.user.id if self.user else "?")
