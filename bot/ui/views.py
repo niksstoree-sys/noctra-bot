@@ -127,10 +127,16 @@ class ProductDetailView(discord.ui.View):
 
 class ShopPanelView(discord.ui.View):
     """Persistent panel posted once via /settings shop_panel. Customers click
-    this instead of ever running /shop -- fully button-driven browsing."""
+    this instead of ever running /shop -- fully button-driven browsing.
 
-    def __init__(self) -> None:
+    The custom_id stays fixed ("noctra:shop:browse") so this keeps working
+    after a bot restart no matter what label staff chose when posting it --
+    only the button's `custom_id` matters for re-attaching to the persistent
+    template registered in setup_hook, not its visible label."""
+
+    def __init__(self, button_label: str = "Browse Store") -> None:
         super().__init__(timeout=None)
+        self.browse.label = button_label[:80]
 
     @discord.ui.button(label="Browse Store", style=discord.ButtonStyle.success, custom_id="noctra:shop:browse")
     async def browse(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -496,8 +502,9 @@ class TicketControlView(discord.ui.View):
 # ============================================================================
 
 class OpenTicketPanelView(discord.ui.View):
-    def __init__(self) -> None:
+    def __init__(self, button_label: str = "Open Ticket") -> None:
         super().__init__(timeout=None)
+        self.open_ticket.label = button_label[:80]
 
     @discord.ui.button(label="Open Ticket", style=discord.ButtonStyle.primary, custom_id="noctra:ticket:open_support")
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
