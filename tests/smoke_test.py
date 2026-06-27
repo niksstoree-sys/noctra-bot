@@ -30,6 +30,9 @@ async def main():
     bot._register_persistent_views()
     print("OK  persistent views registered")
 
+    bot._register_dynamic_items()
+    print("OK  dynamic items registered")
+
     commands = bot.tree.get_commands()
     total = 0
 
