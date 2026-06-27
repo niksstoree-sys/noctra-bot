@@ -144,6 +144,12 @@ submit|edit|delete|list`
    - `/settings shop_panel` in your store/shopping channel
    - `/ticket panel` in your support channel
 
+   Both panel commands take optional `title`, `description`, `image_url`
+   (full-width banner), `thumbnail_url` (small logo), and `button_label`
+   parameters -- customize the look entirely from the command, no code
+   changes needed. Re-run the command to post an updated panel (delete the
+   old message manually, or just leave both up).
+
    From that point on, customers only ever click buttons/selects and fill in
    modals -- ordering and leaving a review both happen without typing a
    single slash command (see "Purchase flow" and "Reviews" above).
