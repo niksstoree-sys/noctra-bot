@@ -1,19 +1,30 @@
 """
-Interactive Views for NOCTRA: shop browsing (category/product selects),
-the purchase wizard (variant select -> dynamic fields -> payment select ->
-order confirmation), persistent ticket control buttons, and the button-only
-review flow (rating buttons -> optional text modal -- no slash command
-needed).
+Interactive Views for NOCTRA: shop browsing (category/product selects), the
+purchase wizard (variant select -> dynamic fields -> payment select -> order
+confirmation), persistent ticket control buttons (general support only), and
+the button-only review flow (rating buttons -> optional text modal).
 
-Persistent views (survive bot restarts because they use static custom_id
-values and are re-registered in `setup_hook`): ShopPanelView,
-TicketControlView, TicketReopenView, OpenTicketPanelView, ReviewPromptView.
+The purchase wizard and review flow are DM-based: after the initial "Buy Now"
+click in a guild channel, every remaining step (variant/payment selects,
+checkout field modals, order confirmation, payment instructions, and later
+the review prompt) happens in the customer's DMs. This makes the whole store
+guild-agnostic by design -- the same catalogue/orders/reviews work no matter
+which server the bot is posted in, since nothing customer-facing depends on
+a per-guild ticket channel. Staff manage orders either via `/order` commands
+or the optional order-log channel (`/settings order_log_channel`).
+
+Persistent views/items (survive bot restarts):
+  - Static custom_id, registered via `add_view` in setup_hook: ShopPanelView,
+    TicketControlView, TicketReopenView, OpenTicketPanelView.
+  - Dynamic custom_id (order/rating id encoded in the id itself), registered
+    via `add_dynamic_items` in setup_hook: OrderActionButton, ReviewStartButton.
 """
 
 from __future__ import annotations
 
 import discord
 
+from bot.core.logger import logger
 from bot.core.theme import COLOR_ACCENT
 from bot.database.queries import (
     categories as categories_q,
@@ -27,8 +38,8 @@ from bot.database.queries import (
 )
 from bot.ui import embeds
 from bot.ui.modals import ReasonModal, ReviewTextModal, collect_dynamic_fields
-from bot.utils import ticket_actions
-from bot.utils.helpers import calculate_final_price
+from bot.utils import order_actions, ticket_actions
+from bot.utils.helpers import RuntimeSettings, calculate_final_price
 from bot.utils.permissions import is_staff
 from bot.utils.validators import FieldValidationError, validate_field_value
 
@@ -172,16 +183,54 @@ async def start_purchase(interaction: discord.Interaction, product_id: int) -> N
         )
         return
 
+    dm_channel = await interaction.user.create_dm()
     variants = await variants_q.list_variants(db, product_id, available_only=True)
-    if variants:
-        embed = embeds.info_embed(
-            "Select a Variant", f"Choose a variant for **{product['name']}** to continue."
-        )
+
+    try:
+        if variants:
+            embed = embeds.info_embed(
+                "Select a Variant", f"Choose a variant for **{product['name']}** to continue your order."
+            )
+            await dm_channel.send(embed=embed, view=VariantSelectView(product, variants))
+        else:
+            embed = embeds.info_embed(
+                "Continue Your Order", f"Click below to continue ordering **{product['name']}**."
+            )
+            await dm_channel.send(embed=embed, view=ContinueOrderView(product))
+    except discord.Forbidden:
         await interaction.response.send_message(
-            embed=embed, view=VariantSelectView(product, variants), ephemeral=True
+            embed=embeds.error_embed(
+                "I couldn't send you a DM to continue checkout. Please enable "
+                '"Allow direct messages from server members" in your Privacy Settings '
+                "for this server and try again."
+            ),
+            ephemeral=True,
         )
-    else:
-        await proceed_to_fields(interaction, product, None)
+        return
+
+    await interaction.response.send_message(
+        embed=embeds.success_embed("Check your DMs to continue your order."), ephemeral=True
+    )
+
+
+class ContinueOrderButton(discord.ui.Button):
+    """Shown in DM when a product has no variants -- gives the customer
+    something to click so a Modal can be opened for checkout fields, since
+    Discord only allows opening a Modal in response to a component
+    interaction, never from a plain bot-sent message."""
+
+    def __init__(self, product) -> None:
+        super().__init__(label="Continue Order", style=discord.ButtonStyle.success)
+        self.product = product
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await proceed_to_fields(interaction, self.product, None)
+
+
+class ContinueOrderView(discord.ui.View):
+    def __init__(self, product) -> None:
+        super().__init__(timeout=600)
+        self.add_item(ContinueOrderButton(product))
 
 
 class VariantSelect(discord.ui.Select):
@@ -333,27 +382,46 @@ async def finalize_order(
     for fv in field_values:
         await orders_q.add_field_value(db, order_id, fv["label"], fv["field_type"], fv["value"])
 
-    channel = await ticket_actions.create_ticket_channel(
-        interaction.client, interaction.guild, interaction.user, "order", order_id
-    )
-    await orders_q.set_ticket_channel(db, order_id, channel.id)
-
     order_row = await orders_q.get_order(db, order_id)
     saved_fields = await orders_q.get_field_values(db, order_id)
     order_embed = embeds.order_summary_embed(order_row, product, variant, payment, saved_fields)
 
-    view = TicketControlView()
-    content = f"{interaction.user.mention}"
+    reply_embeds = [order_embed]
     if payment["instructions"]:
-        instructions_embed = embeds.info_embed(f"Payment -- {payment['name']}", payment["instructions"])
-        await channel.send(content=content, embeds=[order_embed, instructions_embed], view=view)
-    else:
-        await channel.send(content=content, embed=order_embed, view=view)
+        reply_embeds.append(embeds.info_embed(f"Payment -- {payment['name']}", payment["instructions"]))
+    reply_embeds.append(
+        embeds.info_embed(
+            "Already Paid?",
+            "Once you've paid, send your payment proof (a screenshot works great) "
+            "right here in this DM -- it gets forwarded to staff automatically, "
+            "tagged with this order number, so it's never mixed up with anyone else's.",
+        )
+    )
 
     await interaction.followup.send(
-        embed=embeds.success_embed(f"Order #{order_id} created. Continue in {channel.mention}."),
+        content="Your order has been created! Here are the details:",
+        embeds=reply_embeds,
         ephemeral=True,
     )
+
+    # Let staff know via the order-log channel, if one is configured. This
+    # works across every server the bot is in, since the channel is a fixed
+    # bot-wide object -- it doesn't have to live in the guild the customer
+    # bought from.
+    runtime = RuntimeSettings(db)
+    log_channel_id = await runtime.order_log_channel_id()
+    if log_channel_id:
+        log_channel = interaction.client.get_channel(log_channel_id)
+        if isinstance(log_channel, discord.TextChannel):
+            staff_embed = embeds.order_summary_embed(order_row, product, variant, payment, saved_fields)
+            staff_embed.add_field(name="Customer", value=f"<@{interaction.user.id}> ({interaction.user})", inline=False)
+            staff_view = discord.ui.View(timeout=None)
+            for action in ("mark_paid", "mark_completed", "cancel", "refund"):
+                staff_view.add_item(OrderActionButton(action, order_id))
+            try:
+                await log_channel.send(embed=staff_embed, view=staff_view)
+            except discord.HTTPException:
+                logger.exception("Failed to post order #%s to the order-log channel.", order_id)
 
 
 # ============================================================================
@@ -380,102 +448,13 @@ ticket_actions._ReopenViewRef.set(TicketReopenView())
 
 
 class TicketControlView(discord.ui.View):
+    """Attached to general support tickets only -- order-specific actions
+    (Mark Paid/Completed/Cancel/Refund) now live on OrderActionButton in the
+    order-log channel and/or the /order commands, since orders no longer
+    create a per-order ticket channel (see module docstring)."""
+
     def __init__(self) -> None:
         super().__init__(timeout=None)
-
-    async def _get_order(self, interaction: discord.Interaction):
-        db = interaction.client.db  # type: ignore[attr-defined]
-        return await orders_q.get_order_by_channel(db, interaction.channel.id)
-
-    @discord.ui.button(label="Mark Paid", style=discord.ButtonStyle.success, custom_id="noctra:ticket:mark_paid")
-    async def mark_paid(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await is_staff(interaction):
-            await interaction.response.send_message(embed=embeds.error_embed("Staff only."), ephemeral=True)
-            return
-        order = await self._get_order(interaction)
-        if not order:
-            await interaction.response.send_message(embed=embeds.error_embed("No order linked to this channel."), ephemeral=True)
-            return
-        db = interaction.client.db  # type: ignore[attr-defined]
-        await orders_q.set_payment_status(db, order["id"], "paid")
-        if order["status"] == "pending":
-            await orders_q.set_order_status(db, order["id"], "processing")
-        await interaction.response.send_message(
-            embed=embeds.success_embed(f"Order #{order['id']} marked as **paid**."), ephemeral=False
-        )
-
-    @discord.ui.button(label="Mark Completed", style=discord.ButtonStyle.primary, custom_id="noctra:ticket:mark_completed")
-    async def mark_completed(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await is_staff(interaction):
-            await interaction.response.send_message(embed=embeds.error_embed("Staff only."), ephemeral=True)
-            return
-        order = await self._get_order(interaction)
-        if not order:
-            await interaction.response.send_message(embed=embeds.error_embed("No order linked to this channel."), ephemeral=True)
-            return
-        db = interaction.client.db  # type: ignore[attr-defined]
-        await orders_q.set_order_status(db, order["id"], "completed")
-        await interaction.response.send_message(
-            embed=embeds.success_embed(f"Order #{order['id']} marked as **completed**."),
-            ephemeral=False,
-        )
-        existing_review = await reviews_q.get_review_by_order(db, order["id"])
-        if not existing_review:
-            product = await products_q.get_product(db, order["product_id"])
-            product_name = product["name"] if product else "your purchase"
-            embed = embeds.info_embed(
-                "How was your purchase?",
-                f"<@{order['user_id']}> -- let others know what you thought of **{product_name}**. "
-                "Click below to leave a rating, no commands needed.",
-            )
-            await interaction.channel.send(embed=embed, view=ReviewPromptView())
-
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger, custom_id="noctra:ticket:cancel")
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await is_staff(interaction):
-            await interaction.response.send_message(embed=embeds.error_embed("Staff only."), ephemeral=True)
-            return
-        order = await self._get_order(interaction)
-        if not order:
-            await interaction.response.send_message(embed=embeds.error_embed("No order linked to this channel."), ephemeral=True)
-            return
-
-        async def on_reason(inter: discord.Interaction, reason: str) -> None:
-            db = inter.client.db  # type: ignore[attr-defined]
-            await orders_q.set_order_status(db, order["id"], "cancelled")
-            await orders_q.set_payment_status(db, order["id"], "cancelled")
-            if order["stock_reserved"]:
-                await products_q.adjust_stock(db, order["product_id"], 1)
-                await orders_q.clear_stock_reserved(db, order["id"])
-            text = f"Order #{order['id']} has been **cancelled**."
-            if reason:
-                text += f"\nReason: {reason}"
-            await inter.response.send_message(embed=embeds.error_embed(text), ephemeral=False)
-
-        await interaction.response.send_modal(ReasonModal("Cancel Order", on_reason))
-
-    @discord.ui.button(label="Refund", style=discord.ButtonStyle.danger, custom_id="noctra:ticket:refund")
-    async def refund(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await is_staff(interaction):
-            await interaction.response.send_message(embed=embeds.error_embed("Staff only."), ephemeral=True)
-            return
-        order = await self._get_order(interaction)
-        if not order:
-            await interaction.response.send_message(embed=embeds.error_embed("No order linked to this channel."), ephemeral=True)
-            return
-
-        async def on_reason(inter: discord.Interaction, reason: str) -> None:
-            db = inter.client.db  # type: ignore[attr-defined]
-            await orders_q.set_order_status(db, order["id"], "refunded")
-            if order["stock_reserved"]:
-                await products_q.adjust_stock(db, order["product_id"], 1)
-                await orders_q.clear_stock_reserved(db, order["id"])
-            text = f"Order #{order['id']} has been **refunded**."
-            if reason:
-                text += f"\nReason: {reason}"
-            await inter.response.send_message(embed=embeds.error_embed(text), ephemeral=False)
-
-        await interaction.response.send_modal(ReasonModal("Refund Order", on_reason))
 
     @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.secondary, custom_id="noctra:ticket:close")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -495,6 +474,79 @@ class TicketControlView(discord.ui.View):
             await inter.followup.send(embed=embeds.success_embed("Ticket closed."), ephemeral=True)
 
         await interaction.response.send_modal(ReasonModal("Close Ticket", on_reason))
+
+
+# ============================================================================
+# ORDER ACTIONS (persistent, dynamic -- posted in the order-log channel)
+# ============================================================================
+
+class OrderActionButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"noctra:order:(?P<action>mark_paid|mark_completed|cancel|refund):(?P<order_id>[0-9]+)",
+):
+    """A staff control button whose order ID is encoded directly in its
+    custom_id. Unlike a normal persistent View (one fixed custom_id shared by
+    every message), this lets every order get its own working Mark Paid /
+    Mark Completed / Cancel / Refund buttons in the shared order-log channel,
+    and they keep working after a bot restart with no extra bookkeeping --
+    discord.py reconstructs the button from the custom_id alone."""
+
+    LABELS = {
+        "mark_paid": "Mark Paid",
+        "mark_completed": "Mark Completed",
+        "cancel": "Cancel",
+        "refund": "Refund",
+    }
+    STYLES = {
+        "mark_paid": discord.ButtonStyle.success,
+        "mark_completed": discord.ButtonStyle.primary,
+        "cancel": discord.ButtonStyle.danger,
+        "refund": discord.ButtonStyle.danger,
+    }
+
+    def __init__(self, action: str, order_id: int) -> None:
+        super().__init__(
+            discord.ui.Button(
+                label=self.LABELS[action],
+                style=self.STYLES[action],
+                custom_id=f"noctra:order:{action}:{order_id}",
+            )
+        )
+        self.action = action
+        self.order_id = order_id
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):  # noqa: D102
+        return cls(match["action"], int(match["order_id"]))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not await is_staff(interaction):
+            await interaction.response.send_message(embed=embeds.error_embed("Staff only."), ephemeral=True)
+            return
+
+        if self.action in ("mark_paid", "mark_completed"):
+            await interaction.response.defer(ephemeral=True)
+            func = order_actions.mark_paid if self.action == "mark_paid" else order_actions.mark_completed
+            ok, message = await func(interaction.client, self.order_id)
+            await interaction.followup.send(
+                embed=embeds.success_embed(message) if ok else embeds.error_embed(message), ephemeral=True
+            )
+            return
+
+        action, order_id = self.action, self.order_id
+
+        async def on_reason(inter: discord.Interaction, reason: str) -> None:
+            await inter.response.defer(ephemeral=True)
+            if action == "cancel":
+                ok, message = await order_actions.cancel_order(inter.client, order_id, reason or None)
+            else:
+                ok, message = await order_actions.refund_order(inter.client, order_id, reason or None)
+            await inter.followup.send(
+                embed=embeds.success_embed(message) if ok else embeds.error_embed(message), ephemeral=True
+            )
+
+        title = "Cancel Order" if action == "cancel" else "Refund Order"
+        await interaction.response.send_modal(ReasonModal(title, on_reason))
 
 
 # ============================================================================
@@ -589,23 +641,34 @@ class RatingPromptView(discord.ui.View):
         self.add_item(AnonymousToggleButton())
 
 
-class ReviewPromptView(discord.ui.View):
-    """Persistent 'Leave a Review' button -- posted automatically in the
-    ticket channel when staff clicks Mark Completed. The customer never has
-    to type a command: tap a star rating, optionally write a few words in
-    the modal that opens, done."""
+class ReviewStartButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"noctra:review:start:(?P<order_id>[0-9]+)",
+):
+    """The 'Leave a Review' button -- DMed to the customer automatically when
+    staff marks their order completed (see bot.utils.order_actions). The
+    order ID is encoded in the custom_id so this keeps working after a bot
+    restart with no extra bookkeeping, the same trick as OrderActionButton."""
 
-    def __init__(self) -> None:
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="Leave a Review", style=discord.ButtonStyle.success, custom_id="noctra:review:start")
-    async def start(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        db = interaction.client.db  # type: ignore[attr-defined]
-        order = await orders_q.get_order_by_channel(db, interaction.channel.id)
-        if not order:
-            await interaction.response.send_message(
-                embed=embeds.error_embed("No order linked to this channel."), ephemeral=True
+    def __init__(self, order_id: int) -> None:
+        super().__init__(
+            discord.ui.Button(
+                label="Leave a Review",
+                style=discord.ButtonStyle.success,
+                custom_id=f"noctra:review:start:{order_id}",
             )
+        )
+        self.order_id = order_id
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):  # noqa: D102
+        return cls(int(match["order_id"]))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        db = interaction.client.db  # type: ignore[attr-defined]
+        order = await orders_q.get_order(db, self.order_id)
+        if not order:
+            await interaction.response.send_message(embed=embeds.error_embed("Order not found."), ephemeral=True)
             return
         if order["user_id"] != interaction.user.id:
             await interaction.response.send_message(
@@ -618,7 +681,7 @@ class ReviewPromptView(discord.ui.View):
                 embed=embeds.error_embed("This order isn't eligible for a review yet."), ephemeral=True
             )
             return
-        if await reviews_q.get_review_by_order(db, order["id"]):
+        if await reviews_q.get_review_by_order(db, self.order_id):
             await interaction.response.send_message(
                 embed=embeds.error_embed("You've already reviewed this order. Use `/review edit` to change it."),
                 ephemeral=True,
@@ -627,4 +690,49 @@ class ReviewPromptView(discord.ui.View):
         embed = embeds.info_embed(
             "Rate Your Purchase", "Choose a rating from 1 to 5, then write an optional review."
         )
-        await interaction.response.send_message(embed=embed, view=RatingPromptView(order["id"]), ephemeral=True)
+        await interaction.response.send_message(embed=embed, view=RatingPromptView(self.order_id), ephemeral=True)
+
+
+# ============================================================================
+# PAYMENT PROOF DISAMBIGUATION (DM -- used when a customer has more than one
+# order awaiting payment at once, see bot.cogs.payment_proof)
+# ============================================================================
+
+class PendingOrderSelect(discord.ui.Select):
+    def __init__(self, orders: list, content: str, attachment_urls: list[str]) -> None:
+        self.orders_map = {str(o["id"]): o for o in orders}
+        self.content = content
+        self.attachment_urls = attachment_urls
+        options = [
+            discord.SelectOption(
+                label=f"Order #{o['id']}",
+                description=f"{o['total_price']:,.2f} {o['currency_label']}",
+                value=str(o["id"]),
+            )
+            for o in orders[:MAX_SELECT_OPTIONS]
+        ]
+        super().__init__(placeholder="Select which order this is about...", options=options)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        order = self.orders_map[self.values[0]]
+        sent = await order_actions.forward_to_staff(
+            interaction.client, order["id"], interaction.user, self.content, self.attachment_urls
+        )
+        if sent:
+            await interaction.response.edit_message(
+                embed=embeds.success_embed(f"Sent to staff for Order #{order['id']}."), view=None
+            )
+        else:
+            await interaction.response.edit_message(
+                embed=embeds.error_embed(
+                    "Staff haven't set up an order-log channel yet, so this couldn't be forwarded "
+                    "automatically. Please wait for staff to check your order manually."
+                ),
+                view=None,
+            )
+
+
+class PendingOrderSelectView(discord.ui.View):
+    def __init__(self, orders: list, content: str, attachment_urls: list[str]) -> None:
+        super().__init__(timeout=300)
+        self.add_item(PendingOrderSelect(orders, content, attachment_urls))
