@@ -5,17 +5,23 @@ from __future__ import annotations
 from bot.database.core import Database
 
 
-async def create_category(db: Database, name: str, description: str | None) -> int:
+async def create_category(
+    db: Database, name: str, description: str | None, emoji: str | None = None
+) -> int:
     row = await db.fetchone("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM categories")
     position = row["p"] if row else 0
     return await db.execute(
-        "INSERT INTO categories (name, description, position) VALUES (?, ?, ?)",
-        (name, description, position),
+        "INSERT INTO categories (name, description, emoji, position) VALUES (?, ?, ?, ?)",
+        (name, description, emoji, position),
     )
 
 
 async def update_category(
-    db: Database, category_id: int, name: str | None = None, description: str | None = None
+    db: Database,
+    category_id: int,
+    name: str | None = None,
+    description: str | None = None,
+    emoji: str | None = None,
 ) -> None:
     fields, params = [], []
     if name is not None:
@@ -24,6 +30,9 @@ async def update_category(
     if description is not None:
         fields.append("description = ?")
         params.append(description)
+    if emoji is not None:
+        fields.append("emoji = ?")
+        params.append(None if emoji == "none" else emoji)
     if not fields:
         return
     params.append(category_id)
