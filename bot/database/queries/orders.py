@@ -94,6 +94,20 @@ async def list_orders_for_user(db: Database, user_id: int, limit: int = 25):
     )
 
 
+async def list_pending_payment_orders_for_user(db: Database, user_id: int):
+    """Orders still awaiting payment confirmation for this user -- used to
+    figure out which order a DM (e.g. a payment proof screenshot) belongs to."""
+    return await db.fetchall(
+        """
+        SELECT * FROM orders
+        WHERE user_id = ? AND payment_status = 'pending'
+          AND status NOT IN ('cancelled', 'refunded')
+        ORDER BY created_at DESC
+        """,
+        (user_id,),
+    )
+
+
 async def list_orders(db: Database, status: str | None = None, limit: int = 50):
     if status:
         return await db.fetchall(
