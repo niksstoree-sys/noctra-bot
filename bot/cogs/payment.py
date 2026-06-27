@@ -24,8 +24,9 @@ class PaymentCog(commands.Cog):
 
     @payment_group.command(name="add", description="Add a new payment method.")
     @app_commands.describe(
-        name="Payment method name, e.g. Bank Transfer, PayPal, Maybank",
-        instructions="Instructions shown to the customer in their ticket",
+        name="Payment method name, e.g. QRIS, Bank Transfer, PayPal, Maybank",
+        instructions="Instructions shown to the customer (e.g. account number, how to pay)",
+        image_url="QR code / payment image shown to the customer (PNG/JPG/WebP), e.g. your QRIS code",
         timeout_minutes="Minutes before an unpaid order is auto-expired",
     )
     @staff_only()
@@ -34,9 +35,12 @@ class PaymentCog(commands.Cog):
         interaction: discord.Interaction,
         name: str,
         instructions: str | None = None,
+        image_url: str | None = None,
         timeout_minutes: app_commands.Range[int, 1, 10080] = 30,
     ) -> None:
-        payment_id = await payments_q.create_payment_method(self.bot.db, name, instructions, timeout_minutes)
+        payment_id = await payments_q.create_payment_method(
+            self.bot.db, name, instructions, timeout_minutes, image_url
+        )
         await interaction.response.send_message(
             embed=embeds.success_embed(f"Payment method **{name}** added with ID `{payment_id}`."),
             ephemeral=True,
@@ -47,6 +51,7 @@ class PaymentCog(commands.Cog):
         payment="Payment method to edit",
         name="New name",
         instructions="New instructions",
+        image_url="New QR code / payment image URL (PNG/JPG/WebP)",
         timeout_minutes="New payment timeout in minutes",
     )
     @app_commands.autocomplete(payment=payment_autocomplete)
@@ -57,6 +62,7 @@ class PaymentCog(commands.Cog):
         payment: int,
         name: str | None = None,
         instructions: str | None = None,
+        image_url: str | None = None,
         timeout_minutes: int | None = None,
     ) -> None:
         existing = await payments_q.get_payment_method(self.bot.db, payment)
@@ -68,6 +74,8 @@ class PaymentCog(commands.Cog):
             updates["name"] = name
         if instructions is not None:
             updates["instructions"] = instructions
+        if image_url is not None:
+            updates["image_url"] = image_url
         if timeout_minutes is not None:
             updates["timeout_minutes"] = timeout_minutes
         await payments_q.update_payment_method(self.bot.db, payment, **updates)
