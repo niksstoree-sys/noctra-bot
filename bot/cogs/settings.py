@@ -8,6 +8,7 @@ from discord.ext import commands
 
 from bot.database.queries import settings as settings_q
 from bot.ui import embeds
+from bot.ui.views import ShopPanelView
 from bot.utils.helpers import RuntimeSettings
 from bot.utils.permissions import staff_only
 
@@ -21,6 +22,16 @@ class SettingsCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+
+    @settings_group.command(name="shop_panel", description="Post the Browse Store button panel in this channel.")
+    @staff_only()
+    async def shop_panel(self, interaction: discord.Interaction) -> None:
+        embed = embeds.base_embed(
+            "NOCTRA STORE",
+            "Click below to browse the catalogue and place an order -- no commands needed.",
+        )
+        await interaction.channel.send(embed=embed, view=ShopPanelView())
+        await interaction.response.send_message(embed=embeds.success_embed("Shop panel posted."), ephemeral=True)
 
     @settings_group.command(name="view", description="View current settings.")
     @staff_only()
