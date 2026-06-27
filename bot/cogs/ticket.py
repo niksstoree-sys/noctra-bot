@@ -31,14 +31,28 @@ class TicketCog(commands.Cog):
             await tickets_q.touch_activity(self.bot.db, message.channel.id)
 
     @ticket_group.command(name="panel", description="Post the Open Ticket panel in this channel.")
+    @app_commands.describe(
+        title="Panel title",
+        description="Panel body text",
+        image_url="Full-width banner image shown under the text (PNG/JPG/WebP)",
+        thumbnail_url="Small logo/thumbnail image shown top-right (PNG/JPG/WebP)",
+        button_label="Text shown on the button",
+    )
     @staff_only()
-    async def panel(self, interaction: discord.Interaction) -> None:
-        embed = embeds.base_embed(
-            "NOCTRA -- Support",
+    async def panel(
+        self,
+        interaction: discord.Interaction,
+        title: str = "NOCTRA -- Support",
+        description: str = (
             "Need help with an order or have a question for staff? "
-            "Click below to open a private ticket.",
-        )
-        await interaction.channel.send(embed=embed, view=OpenTicketPanelView())
+            "Click below to open a private ticket."
+        ),
+        image_url: str | None = None,
+        thumbnail_url: str | None = None,
+        button_label: str = "Open Ticket",
+    ) -> None:
+        embed = embeds.base_embed(title, description, image_url=image_url, thumbnail_url=thumbnail_url)
+        await interaction.channel.send(embed=embed, view=OpenTicketPanelView(button_label=button_label))
         await interaction.response.send_message(embed=embeds.success_embed("Ticket panel posted."), ephemeral=True)
 
     @ticket_group.command(name="open", description="Open a new support ticket.")

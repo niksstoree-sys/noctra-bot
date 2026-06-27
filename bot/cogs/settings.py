@@ -24,13 +24,25 @@ class SettingsCog(commands.Cog):
         self.bot = bot
 
     @settings_group.command(name="shop_panel", description="Post the Browse Store button panel in this channel.")
+    @app_commands.describe(
+        title="Panel title",
+        description="Panel body text",
+        image_url="Full-width banner image shown under the text (PNG/JPG/WebP)",
+        thumbnail_url="Small logo/thumbnail image shown top-right (PNG/JPG/WebP)",
+        button_label="Text shown on the button",
+    )
     @staff_only()
-    async def shop_panel(self, interaction: discord.Interaction) -> None:
-        embed = embeds.base_embed(
-            "NOCTRA STORE",
-            "Click below to browse the catalogue and place an order -- no commands needed.",
-        )
-        await interaction.channel.send(embed=embed, view=ShopPanelView())
+    async def shop_panel(
+        self,
+        interaction: discord.Interaction,
+        title: str = "NOCTRA STORE",
+        description: str = "Click below to browse the catalogue and place an order -- no commands needed.",
+        image_url: str | None = None,
+        thumbnail_url: str | None = None,
+        button_label: str = "Browse Store",
+    ) -> None:
+        embed = embeds.base_embed(title, description, image_url=image_url, thumbnail_url=thumbnail_url)
+        await interaction.channel.send(embed=embed, view=ShopPanelView(button_label=button_label))
         await interaction.response.send_message(embed=embeds.success_embed("Shop panel posted."), ephemeral=True)
 
     @settings_group.command(name="view", description="View current settings.")
