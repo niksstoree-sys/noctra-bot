@@ -49,6 +49,8 @@ class NoctraBot(commands.Bot):
         self._register_dynamic_items()
         setup_error_handler(self)
 
+        await self._clear_stale_guild_commands()
+
         if config.guild_id:
             guild = discord.Object(id=config.guild_id)
             self.tree.copy_global_to(guild=guild)
@@ -57,6 +59,20 @@ class NoctraBot(commands.Bot):
         else:
             synced = await self.tree.sync()
             logger.info("Synced %d global commands.", len(synced))
+
+    async def _clear_stale_guild_commands(self) -> None:
+        """One-time fix for duplicate slash commands: if the bot was ever
+        run with GUILD_ID set, Discord keeps a guild-specific copy of every
+        command in that server *in addition to* the global ones synced
+        later, so the server shows both (often with outdated descriptions
+        from whatever the code looked like at the time). Listing that
+        server's ID in CLEAR_GUILD_COMMANDS_FOR wipes the guild-specific
+        copies so only the current global commands remain visible there."""
+        for guild_id in config.clear_guild_commands_for:
+            guild = discord.Object(id=guild_id)
+            self.tree.clear_commands(guild=guild)
+            await self.tree.sync(guild=guild)
+            logger.info("Cleared stale guild-specific commands for guild %s.", guild_id)
 
     def _register_persistent_views(self) -> None:
         # Imported lazily to avoid import-order issues with bot.db being used

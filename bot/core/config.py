@@ -26,6 +26,18 @@ def _get_int(name: str, default: int | None = None) -> int | None:
         return default
 
 
+def _get_int_list(name: str) -> list[int]:
+    raw = os.getenv(name)
+    if not raw:
+        return []
+    result = []
+    for piece in raw.split(","):
+        piece = piece.strip()
+        if piece.isdigit():
+            result.append(int(piece))
+    return result
+
+
 def _get_bool(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -38,6 +50,16 @@ class Config:
     # Core bot identity
     token: str = field(default_factory=lambda: os.getenv("DISCORD_TOKEN", ""))
     guild_id: int | None = field(default_factory=lambda: _get_int("GUILD_ID"))
+
+    # One-time cleanup: if a server has duplicate/stale slash commands left
+    # over from an earlier GUILD_ID-based sync, list its ID(s) here
+    # (comma-separated for more than one) to wipe the guild-specific
+    # registrations on the next startup. Safe to leave this set permanently
+    # -- once cleared there's nothing left to clear, it's just a no-op on
+    # every subsequent boot -- but it's fine to remove it again too.
+    clear_guild_commands_for: list[int] = field(
+        default_factory=lambda: _get_int_list("CLEAR_GUILD_COMMANDS_FOR")
+    )
 
     # Persistence
     database_path: str = field(
