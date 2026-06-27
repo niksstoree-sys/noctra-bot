@@ -38,17 +38,16 @@ class TasksCog(commands.Cog):
                 if order["stock_reserved"]:
                     await products_q.adjust_stock(db, order["product_id"], 1)
                     await orders_q.clear_stock_reserved(db, order["id"])
-                if order["ticket_channel_id"]:
-                    channel = self.bot.get_channel(order["ticket_channel_id"])
-                    if isinstance(channel, discord.TextChannel):
-                        try:
-                            await channel.send(
-                                embed=embeds.error_embed(
-                                    f"Order #{order['id']} payment window has expired."
-                                )
-                            )
-                        except discord.HTTPException:
-                            pass
+                try:
+                    user = self.bot.get_user(order["user_id"]) or await self.bot.fetch_user(order["user_id"])
+                    await user.send(
+                        embed=embeds.error_embed(
+                            f"Your order #{order['id']} payment window has expired. "
+                            "Place a new order from the store if you'd still like this item."
+                        )
+                    )
+                except discord.HTTPException:
+                    pass
         except Exception:  # noqa: BLE001
             logger.exception("Error in expire_payments task.")
 

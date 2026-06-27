@@ -45,12 +45,25 @@ class SettingsCog(commands.Cog):
         await interaction.channel.send(embed=embed, view=ShopPanelView(button_label=button_label))
         await interaction.response.send_message(embed=embeds.success_embed("Shop panel posted."), ephemeral=True)
 
+    @settings_group.command(
+        name="order_log_channel",
+        description="Set the channel where new orders are posted with staff controls (Mark Paid/Completed/Cancel/Refund).",
+    )
+    @app_commands.describe(channel="Channel for order notifications and staff controls")
+    @staff_only()
+    async def order_log_channel(self, interaction: discord.Interaction, channel: discord.TextChannel) -> None:
+        await settings_q.set_setting(self.bot.db, "order_log_channel_id", str(channel.id))
+        await interaction.response.send_message(
+            embed=embeds.success_embed(f"Order log channel set to {channel.mention}."), ephemeral=True
+        )
+
     @settings_group.command(name="view", description="View current settings.")
     @staff_only()
     async def view(self, interaction: discord.Interaction) -> None:
         runtime = RuntimeSettings(self.bot.db)
         values = {
             "staff_role_id": await runtime.staff_role_id(),
+            "order_log_channel_id": await runtime.order_log_channel_id(),
             "ticket_category_id": await runtime.ticket_category_id(),
             "ticket_archive_category_id": await runtime.ticket_archive_category_id(),
             "ticket_log_channel_id": await runtime.ticket_log_channel_id(),

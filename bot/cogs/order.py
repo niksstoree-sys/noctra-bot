@@ -13,6 +13,7 @@ from bot.database.queries import payments as payments_q
 from bot.database.queries import products as products_q
 from bot.database.queries import variants as variants_q
 from bot.ui import embeds
+from bot.utils import order_actions
 from bot.utils.autocomplete import any_order_autocomplete
 from bot.utils.permissions import staff_only
 
@@ -68,20 +69,33 @@ class OrderCog(commands.Cog):
         )
 
     @order_group.command(name="status", description="Manually set an order's status.")
-    @app_commands.describe(order="Order to update", status="New status")
+    @app_commands.describe(
+        order="Order to update",
+        status="New status",
+        reason="Reason shown to the customer (used for cancelled/refunded)",
+    )
     @app_commands.autocomplete(order=any_order_autocomplete)
     @staff_only()
-    async def set_status(self, interaction: discord.Interaction, order: int, status: OrderStatus) -> None:
+    async def set_status(
+        self, interaction: discord.Interaction, order: int, status: OrderStatus, reason: str | None = None
+    ) -> None:
         existing = await orders_q.get_order(self.bot.db, order)
         if not existing:
             await interaction.response.send_message(embed=embeds.error_embed("Order not found."), ephemeral=True)
             return
-        if status in ("cancelled", "refunded") and existing["stock_reserved"]:
-            await products_q.adjust_stock(self.bot.db, existing["product_id"], 1)
-            await orders_q.clear_stock_reserved(self.bot.db, order)
-        await orders_q.set_order_status(self.bot.db, order, status)
-        await interaction.response.send_message(
-            embed=embeds.success_embed(f"Order `#{order}` status set to **{status}**."), ephemeral=True
+
+        await interaction.response.defer(ephemeral=True)
+        if status == "completed":
+            ok, message = await order_actions.mark_completed(self.bot, order)
+        elif status == "cancelled":
+            ok, message = await order_actions.cancel_order(self.bot, order, reason)
+        elif status == "refunded":
+            ok, message = await order_actions.refund_order(self.bot, order, reason)
+        else:
+            await orders_q.set_order_status(self.bot.db, order, status)
+            ok, message = True, f"Order `#{order}` status set to **{status}**."
+        await interaction.followup.send(
+            embed=embeds.success_embed(message) if ok else embeds.error_embed(message), ephemeral=True
         )
 
     @order_group.command(name="payment_status", description="Manually set an order's payment status.")
@@ -95,9 +109,34 @@ class OrderCog(commands.Cog):
         if not existing:
             await interaction.response.send_message(embed=embeds.error_embed("Order not found."), ephemeral=True)
             return
-        await orders_q.set_payment_status(self.bot.db, order, payment_status)
-        await interaction.response.send_message(
-            embed=embeds.success_embed(f"Order `#{order}` payment status set to **{payment_status}**."),
+
+        await interaction.response.defer(ephemeral=True)
+        if payment_status == "paid":
+            ok, message = await order_actions.mark_paid(self.bot, order)
+        else:
+            await orders_q.set_payment_status(self.bot.db, order, payment_status)
+            ok, message = True, f"Order `#{order}` payment status set to **{payment_status}**."
+        await interaction.followup.send(
+            embed=embeds.success_embed(message) if ok else embeds.error_embed(message), ephemeral=True
+        )
+
+    @order_group.command(name="message", description="Send a message to the customer about their order (delivered by DM).")
+    @app_commands.describe(order="Order to message the customer about", message="Message to send")
+    @app_commands.autocomplete(order=any_order_autocomplete)
+    @staff_only()
+    async def message_customer(self, interaction: discord.Interaction, order: int, message: str) -> None:
+        existing = await orders_q.get_order(self.bot.db, order)
+        if not existing:
+            await interaction.response.send_message(embed=embeds.error_embed("Order not found."), ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        embed = embeds.info_embed(f"Message about Order #{order}", message)
+        sent = await order_actions.send_message_to_customer(self.bot, existing["user_id"], embed)
+        await interaction.followup.send(
+            embed=embeds.success_embed("Message sent.")
+            if sent
+            else embeds.error_embed("Couldn't DM the customer -- they may have DMs disabled."),
             ephemeral=True,
         )
 
