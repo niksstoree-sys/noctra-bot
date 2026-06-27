@@ -199,8 +199,10 @@ submit|edit|delete|list`
    correctly after you make changes.
 6. In Discord, run `/settings staff_role` and `/settings order_log_channel`
    to finish the core configuration, then `/category create` and `/product
-   create` to start building your catalogue. Finally, post the panels
-   customers will actually use:
+   create` to start building your catalogue (`/category create` takes an
+   optional `emoji` parameter -- a real emoji, custom server emoji included
+   -- shown next to the category in `/shop`'s category dropdown). Finally,
+   post the panels customers will actually use:
    - `/settings shop_panel` in your store/shopping channel
    - `/ticket panel` in your support channel (only needed if you want
      general support tickets -- see "Support tickets" above)
