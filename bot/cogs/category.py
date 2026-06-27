@@ -10,6 +10,7 @@ from bot.database.queries import categories as categories_q
 from bot.ui import embeds
 from bot.utils.autocomplete import category_autocomplete
 from bot.utils.permissions import staff_only
+from bot.utils.validators import is_valid_emoji
 
 
 class CategoryCog(commands.Cog):
@@ -23,19 +24,40 @@ class CategoryCog(commands.Cog):
         self.bot = bot
 
     @category_group.command(name="create", description="Create a new category.")
-    @app_commands.describe(name="Category name", description="Optional description")
+    @app_commands.describe(
+        name="Category name",
+        description="Optional description",
+        emoji="Optional emoji shown next to the category in /shop, e.g. \U0001F3AE or a custom server emoji",
+    )
     @staff_only()
     async def create(
-        self, interaction: discord.Interaction, name: str, description: str | None = None
+        self,
+        interaction: discord.Interaction,
+        name: str,
+        description: str | None = None,
+        emoji: str | None = None,
     ) -> None:
-        category_id = await categories_q.create_category(self.bot.db, name, description)
+        if emoji and not is_valid_emoji(emoji):
+            await interaction.response.send_message(
+                embed=embeds.error_embed(
+                    "That doesn't look like a valid emoji. Use a regular emoji or a custom emoji from this server."
+                ),
+                ephemeral=True,
+            )
+            return
+        category_id = await categories_q.create_category(self.bot.db, name, description, emoji)
         await interaction.response.send_message(
             embed=embeds.success_embed(f"Category **{name}** created with ID `{category_id}`."),
             ephemeral=True,
         )
 
     @category_group.command(name="edit", description="Edit an existing category.")
-    @app_commands.describe(category="Category to edit", name="New name", description="New description")
+    @app_commands.describe(
+        category="Category to edit",
+        name="New name",
+        description="New description",
+        emoji="New emoji (type none to remove it)",
+    )
     @app_commands.autocomplete(category=category_autocomplete)
     @staff_only()
     async def edit(
@@ -44,12 +66,21 @@ class CategoryCog(commands.Cog):
         category: int,
         name: str | None = None,
         description: str | None = None,
+        emoji: str | None = None,
     ) -> None:
         existing = await categories_q.get_category(self.bot.db, category)
         if not existing:
             await interaction.response.send_message(embed=embeds.error_embed("Category not found."), ephemeral=True)
             return
-        await categories_q.update_category(self.bot.db, category, name=name, description=description)
+        if emoji and emoji != "none" and not is_valid_emoji(emoji):
+            await interaction.response.send_message(
+                embed=embeds.error_embed(
+                    "That doesn't look like a valid emoji. Use a regular emoji or a custom emoji from this server."
+                ),
+                ephemeral=True,
+            )
+            return
+        await categories_q.update_category(self.bot.db, category, name=name, description=description, emoji=emoji)
         await interaction.response.send_message(
             embed=embeds.success_embed(f"Category `#{category}` updated."), ephemeral=True
         )
