@@ -225,6 +225,21 @@ submit|edit|delete|list`
    order-log channel/`/order` commands, no matter which server the order
    came from.
 
+### Troubleshooting: duplicate / outdated slash commands in one server
+
+If you ever ran the bot with `GUILD_ID` set to a particular server and later
+switched to a blank `GUILD_ID` (global sync), that server will show **two**
+copies of every command -- the old guild-specific ones (frozen with whatever
+descriptions the code had back then) alongside the new global ones. This is
+a Discord-side quirk, not a bug in the running bot: guild-specific and
+global command registrations are independent, so removing `GUILD_ID` from
+your env doesn't clean up what was already pushed to that guild.
+
+Fix it once: set `CLEAR_GUILD_COMMANDS_FOR=<that server's ID>` in Railway,
+redeploy, check the logs for `Cleared stale guild-specific commands for
+guild ...`, then remove the variable again (or just leave it -- it's a
+no-op once there's nothing left to clear).
+
 ## Deploy to Railway
 
 1. Push this repository to GitHub.
