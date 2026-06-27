@@ -70,15 +70,21 @@ query lives in a small async function (not raw SQL scattered through cogs),
 swapping SQLite for Postgres/MySQL later only means rewriting
 `bot/database/core.py` and the connection logic in the `queries/` modules.
 
-### Purchase flow
+### Purchase flow -- zero commands for customers
 
-`/shop` or `/buy` -> (variant select, if any) -> dynamic checkout fields via
-Modal (chained automatically in batches of 5 if a product has more than 5
-fields, since that's Discord's per-modal limit) -> payment method select (if
-more than one is enabled) -> order created, stock reserved if manual stock,
-private ticket channel created with full order summary + payment
-instructions + staff controls (Mark Paid / Mark Completed / Cancel / Refund /
-Close).
+Staff posts the panel **once** with `/settings shop_panel`. From then on,
+customers never type anything: **Browse Store** button -> category select ->
+product select -> **Buy Now** button -> (variant select, if any) -> dynamic
+checkout fields via Modal (chained automatically in batches of 5 if a
+product has more than 5 fields, since that's Discord's per-modal limit) ->
+payment method select (if more than one is enabled) -> order created, stock
+reserved if manual stock, private ticket channel created with full order
+summary + payment instructions + staff controls (Mark Paid / Mark Completed
+/ Cancel / Refund / Close).
+
+The `/shop` and `/buy` slash commands still work too (e.g. for someone who
+already knows the product name and wants a shortcut) -- they reuse the exact
+same browsing/purchase code as the buttons, so both paths stay in sync.
 
 ### Tickets
 
@@ -89,12 +95,17 @@ transcript (dark themed) and, if `/settings log_channel` is configured, posts
 it there. Tickets auto-archive after N hours of inactivity (`/settings
 auto_archive_hours`, default 24) and can be reopened by staff.
 
-### Reviews
+### Reviews -- also zero commands for customers
 
-A customer can only review an order that is `completed` and `paid`, one
-review per order. New/edited reviews go to `pending` and only become
-publicly visible (`/review list`) once a staff member runs `/review admin
-approve`.
+The moment staff clicks **Mark Completed** on an order's ticket, the bot
+automatically posts a **Leave a Review** button in that channel (only the
+order's owner can use it). Clicking it shows five rating buttons (1-5) plus
+an "Anonymous: Off/On" toggle; picking a rating opens a small modal for an
+optional written review, and submitting it creates the review straight away
+-- no `/review submit` needed. `/review edit|delete|list` (and the admin
+`/review admin approve|reject|hide|delete`) are still there as a backup /
+moderation path, but a customer can go from "order completed" to "review
+submitted" without ever opening the command list.
 
 ## Commands
 
@@ -128,8 +139,14 @@ submit|edit|delete|list`
    correctly after you make changes.
 6. In Discord, run `/settings staff_role`, `/settings ticket_category`,
    `/settings log_channel` to finish configuration, then `/category create`
-   and `/product create` to start building your catalogue, and `/ticket
-   panel` in your support channel.
+   and `/product create` to start building your catalogue. Finally, post the
+   two button panels customers will actually use:
+   - `/settings shop_panel` in your store/shopping channel
+   - `/ticket panel` in your support channel
+
+   From that point on, customers only ever click buttons/selects and fill in
+   modals -- ordering and leaving a review both happen without typing a
+   single slash command (see "Purchase flow" and "Reviews" above).
 
 ## Deploy to Railway
 
