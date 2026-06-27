@@ -1,0 +1,98 @@
+"""Admin commands: /settings"""
+
+from __future__ import annotations
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+from bot.database.queries import settings as settings_q
+from bot.ui import embeds
+from bot.utils.helpers import RuntimeSettings
+from bot.utils.permissions import staff_only
+
+
+class SettingsCog(commands.Cog):
+    """Configure staff role, ticket categories/channels, currency, and auto-archive."""
+
+    settings_group = app_commands.Group(
+        name="settings", description="Configure NOCTRA.", guild_only=True
+    )
+
+    def __init__(self, bot: commands.Bot) -> None:
+        self.bot = bot
+
+    @settings_group.command(name="view", description="View current settings.")
+    @staff_only()
+    async def view(self, interaction: discord.Interaction) -> None:
+        runtime = RuntimeSettings(self.bot.db)
+        values = {
+            "staff_role_id": await runtime.staff_role_id(),
+            "ticket_category_id": await runtime.ticket_category_id(),
+            "ticket_archive_category_id": await runtime.ticket_archive_category_id(),
+            "ticket_log_channel_id": await runtime.ticket_log_channel_id(),
+            "ticket_auto_archive_hours": await runtime.ticket_auto_archive_hours(),
+            "default_currency": await runtime.default_currency(),
+        }
+        await interaction.response.send_message(embed=embeds.settings_embed(values), ephemeral=True)
+
+    @settings_group.command(name="staff_role", description="Set the staff role for admin commands and tickets.")
+    @app_commands.describe(role="Role that should be treated as staff")
+    @staff_only()
+    async def staff_role(self, interaction: discord.Interaction, role: discord.Role) -> None:
+        await settings_q.set_setting(self.bot.db, "staff_role_id", str(role.id))
+        await interaction.response.send_message(
+            embed=embeds.success_embed(f"Staff role set to {role.mention}."), ephemeral=True
+        )
+
+    @settings_group.command(name="ticket_category", description="Set the category new ticket channels are created in.")
+    @app_commands.describe(category="Category channel for new tickets")
+    @staff_only()
+    async def ticket_category(self, interaction: discord.Interaction, category: discord.CategoryChannel) -> None:
+        await settings_q.set_setting(self.bot.db, "ticket_category_id", str(category.id))
+        await interaction.response.send_message(
+            embed=embeds.success_embed(f"Ticket category set to **{category.name}**."), ephemeral=True
+        )
+
+    @settings_group.command(name="archive_category", description="Set the category auto-archived tickets are moved to.")
+    @app_commands.describe(category="Category channel for archived tickets")
+    @staff_only()
+    async def archive_category(self, interaction: discord.Interaction, category: discord.CategoryChannel) -> None:
+        await settings_q.set_setting(self.bot.db, "ticket_archive_category_id", str(category.id))
+        await interaction.response.send_message(
+            embed=embeds.success_embed(f"Archive category set to **{category.name}**."), ephemeral=True
+        )
+
+    @settings_group.command(name="log_channel", description="Set the channel ticket transcripts are posted to.")
+    @app_commands.describe(channel="Channel for ticket transcripts and logs")
+    @staff_only()
+    async def log_channel(self, interaction: discord.Interaction, channel: discord.TextChannel) -> None:
+        await settings_q.set_setting(self.bot.db, "ticket_log_channel_id", str(channel.id))
+        await interaction.response.send_message(
+            embed=embeds.success_embed(f"Log channel set to {channel.mention}."), ephemeral=True
+        )
+
+    @settings_group.command(name="auto_archive_hours", description="Hours of inactivity before a ticket is auto-archived.")
+    @app_commands.describe(hours="Number of hours")
+    @staff_only()
+    async def auto_archive_hours(
+        self, interaction: discord.Interaction, hours: app_commands.Range[int, 1, 720]
+    ) -> None:
+        await settings_q.set_setting(self.bot.db, "ticket_auto_archive_hours", str(hours))
+        await interaction.response.send_message(
+            embed=embeds.success_embed(f"Tickets will auto-archive after {hours} hours of inactivity."),
+            ephemeral=True,
+        )
+
+    @settings_group.command(name="currency", description="Set the default currency label for new products.")
+    @app_commands.describe(currency_label="e.g. USD, IDR, Robux")
+    @staff_only()
+    async def currency(self, interaction: discord.Interaction, currency_label: str) -> None:
+        await settings_q.set_setting(self.bot.db, "default_currency", currency_label)
+        await interaction.response.send_message(
+            embed=embeds.success_embed(f"Default currency set to **{currency_label}**."), ephemeral=True
+        )
+
+
+async def setup(bot: commands.Bot) -> None:
+    await bot.add_cog(SettingsCog(bot))
