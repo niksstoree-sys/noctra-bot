@@ -37,14 +37,17 @@ bot/
     embeds.py                All embed builders (dark purple / blue violet)
     modals.py                Dynamic checkout-field modal(s) + reusable
                              reason modal (close/cancel/refund)
-    views.py                 Shop browsing, purchase wizard, ticket controls
-                             (persistent), support ticket panel (persistent)
+    views.py                 Shop browsing, DM-based purchase wizard, support
+                             ticket controls (persistent), order-log staff
+                             buttons + review prompt (dynamic, restart-safe)
   utils/
     helpers.py                Pricing math, currency formatting, runtime
                              settings resolver (DB override -> .env default)
     validators.py            Dynamic field validation rules
     permissions.py           Staff-only check (Administrator OR staff role)
     autocomplete.py          Shared autocomplete callbacks
+    order_actions.py         Status transitions + customer DM notifications,
+                             shared by /order commands and order-log buttons
     ticket_actions.py        Shared create/close/reopen ticket-channel logic
     transcript.py            Dark-themed HTML ticket transcript generator
   cogs/
@@ -57,6 +60,8 @@ bot/
     order.py       /order (admin), /orders (user)
     ticket.py      /ticket             (admin + user)
     review.py      /review (+ admin)   (user + admin)
+    payment_proof.py  DM relay: forwards customer payment-proof messages
+                       to the order-log channel, tagged by order ID
     tasks.py       background loops: payment timeout, ticket auto-archive
 ```
 
@@ -70,42 +75,89 @@ query lives in a small async function (not raw SQL scattered through cogs),
 swapping SQLite for Postgres/MySQL later only means rewriting
 `bot/database/core.py` and the connection logic in the `queries/` modules.
 
-### Purchase flow -- zero commands for customers
+### Multi-server design
+
+NOCTRA is built as **one store shared across however many servers the bot is
+in** -- not a separate independent store per server. The catalogue, orders,
+payment methods, and settings are global (no per-guild data), and the
+purchase + review flow happens entirely in the customer's **DMs** rather
+than in a per-order ticket channel. That combination is what makes adding
+the bot to a second server "just work" without any extra setup: there's no
+guild-specific channel/role plumbing in the order path at all. Staff manage
+orders from one central place (an order-log channel, in whichever server you
+run the bot's admin side from, or just the `/order` commands) regardless of
+which server the customer bought from.
+
+General **support tickets** (`/ticket panel` -> "Open Ticket") are the one
+remaining guild-channel-based feature, since those benefit from being a
+real back-and-forth conversation in the server staff are already watching.
+If you'd rather those also be DM-based, that's a separate change -- ask and
+it can be added.
+
+### Purchase flow -- zero commands, entirely in DMs
 
 Staff posts the panel **once** with `/settings shop_panel`. From then on,
 customers never type anything: **Browse Store** button -> category select ->
-product select -> **Buy Now** button -> (variant select, if any) -> dynamic
+product select -> **Buy Now** button. At that point NOCTRA opens a DM with
+the customer and the rest happens there: (variant select, if any) -> dynamic
 checkout fields via Modal (chained automatically in batches of 5 if a
 product has more than 5 fields, since that's Discord's per-modal limit) ->
-payment method select (if more than one is enabled) -> order created, stock
-reserved if manual stock, private ticket channel created with full order
-summary + payment instructions + staff controls (Mark Paid / Mark Completed
-/ Cancel / Refund / Close).
+payment method select (if more than one is enabled) -> order created (stock
+reserved if manual stock) -> order summary + payment instructions delivered
+straight to their DM.
+
+If the customer has DMs disabled for the server, they get a clear ephemeral
+error telling them to enable "Allow direct messages from server members" and
+try again.
 
 The `/shop` and `/buy` slash commands still work too (e.g. for someone who
 already knows the product name and wants a shortcut) -- they reuse the exact
 same browsing/purchase code as the buttons, so both paths stay in sync.
 
-### Tickets
+**Staff side:** if you set `/settings order_log_channel`, every new order is
+posted there with Mark Paid / Mark Completed / Cancel / Refund buttons
+(these keep working after a bot restart -- the order ID is encoded directly
+in the button, no per-message bookkeeping needed). Without that channel
+configured, staff can manage everything just as well via `/order view|list|
+status|payment_status`. Either path notifies the customer by DM and -- on
+Mark Completed -- triggers the review prompt automatically.
 
-Every ticket (order-linked or general support, opened via the `/ticket
-panel` button) is a private channel visible only to the customer, the
-configured staff role, and the bot. Closing a ticket generates an HTML
-transcript (dark themed) and, if `/settings log_channel` is configured, posts
-it there. Tickets auto-archive after N hours of inactivity (`/settings
-auto_archive_hours`, default 24) and can be reopened by staff.
+**Payment proof, without a ticket channel:** the order confirmation DM tells
+the customer to send their payment proof (screenshot, transfer reference,
+whatever) right there in the same DM. NOCTRA watches for that: any DM from
+a customer who has an order awaiting payment confirmation gets forwarded
+into the order-log channel automatically, tagged with the exact order ID and
+the customer's mention -- so staff always know precisely which order a
+screenshot belongs to, even if several people are buying at once. If a
+customer happens to have more than one unpaid order at the same time,
+they're asked (via a Select menu, still no commands) which order it's for
+before anything is relayed. Staff can reply back through the same channel
+with `/order message order:<id> message:<text>`, which DMs the customer --
+giving a full two-way conversation without ever opening a channel for them.
+This relay only fires for customers with a pending-payment order; it doesn't
+turn the bot into a general DM chatbot.
 
-### Reviews -- also zero commands for customers
+### Support tickets
 
-The moment staff clicks **Mark Completed** on an order's ticket, the bot
-automatically posts a **Leave a Review** button in that channel (only the
-order's owner can use it). Clicking it shows five rating buttons (1-5) plus
-an "Anonymous: Off/On" toggle; picking a rating opens a small modal for an
-optional written review, and submitting it creates the review straight away
--- no `/review submit` needed. `/review edit|delete|list` (and the admin
-`/review admin approve|reject|hide|delete`) are still there as a backup /
-moderation path, but a customer can go from "order completed" to "review
-submitted" without ever opening the command list.
+A general support ticket (opened via the `/ticket panel` button or `/ticket
+open`) is a private channel visible only to the customer, the configured
+staff role, and the bot. Closing a ticket generates an HTML transcript (dark
+themed) and, if `/settings log_channel` is configured, posts it there.
+Tickets auto-archive after N hours of inactivity (`/settings
+auto_archive_hours`, default 24) and can be reopened by staff. (Order
+tickets/checkout no longer use channels at all -- see "Purchase flow"
+above.)
+
+### Reviews -- also zero commands, delivered by DM
+
+The moment an order is marked **Completed** (via the order-log button or
+`/order status`), NOCTRA DMs the customer a **Leave a Review** button. That
+button keeps working even after a bot restart or days later. Clicking it
+shows five rating buttons (1-5) plus an "Anonymous: Off/On" toggle; picking a
+rating opens a small modal for an optional written review, and submitting it
+creates the review straight away -- no `/review submit` needed.
+`/review edit|delete|list` (and the admin `/review admin
+approve|reject|hide|delete`) are still there as a backup/moderation path.
 
 ## Commands
 
@@ -137,12 +189,13 @@ submit|edit|delete|list`
    persistent views against a throwaway local database, without contacting
    Discord at all -- a fast way to verify the codebase imports and wires up
    correctly after you make changes.
-6. In Discord, run `/settings staff_role`, `/settings ticket_category`,
-   `/settings log_channel` to finish configuration, then `/category create`
-   and `/product create` to start building your catalogue. Finally, post the
-   two button panels customers will actually use:
+6. In Discord, run `/settings staff_role` and `/settings order_log_channel`
+   to finish the core configuration, then `/category create` and `/product
+   create` to start building your catalogue. Finally, post the panels
+   customers will actually use:
    - `/settings shop_panel` in your store/shopping channel
-   - `/ticket panel` in your support channel
+   - `/ticket panel` in your support channel (only needed if you want
+     general support tickets -- see "Support tickets" above)
 
    Both panel commands take optional `title`, `description`, `image_url`
    (full-width banner), `thumbnail_url` (small logo), and `button_label`
@@ -151,8 +204,18 @@ submit|edit|delete|list`
    old message manually, or just leave both up).
 
    From that point on, customers only ever click buttons/selects and fill in
-   modals -- ordering and leaving a review both happen without typing a
-   single slash command (see "Purchase flow" and "Reviews" above).
+   modals -- ordering and leaving a review both happen by DM, without typing
+   a single slash command (see "Purchase flow" and "Reviews" above).
+
+7. **Inviting the bot to additional servers:** since the catalogue/orders are
+   shared (see "Multi-server design" above), you can invite the same bot to
+   as many servers as you want and it keeps working -- just make sure
+   `GUILD_ID` is **blank** so commands sync globally to every server, not
+   only the one you set it to. Post a `/settings shop_panel` in each new
+   server so customers there have a way to start browsing; checkout still
+   happens in their DMs and staff still manage everything from the one
+   order-log channel/`/order` commands, no matter which server the order
+   came from.
 
 ## Deploy to Railway
 
