@@ -54,8 +54,8 @@ def success_embed(message: str) -> discord.Embed:
     return base_embed(f"{MARK_DIAMOND} Success", message, color=COLOR_SUCCESS)
 
 
-def info_embed(title: str, message: str) -> discord.Embed:
-    return base_embed(f"{MARK_DIAMOND} {title}", message, color=COLOR_ACCENT)
+def info_embed(title: str, message: str, image_url: str | None = None) -> discord.Embed:
+    return base_embed(f"{MARK_DIAMOND} {title}", message, color=COLOR_ACCENT, image_url=image_url)
 
 
 # -- Catalogue -----------------------------------------------------------------
@@ -278,9 +278,10 @@ def payment_list_embed(payments: list) -> discord.Embed:
     lines = []
     for p in payments:
         state = "enabled" if p["enabled"] else "disabled"
+        has_image = "image set" if p["image_url"] else "no image"
         lines.append(
             f"{MARK_BULLET} **#{p['id']} -- {p['name']}** {MARK_DASH} {state} "
-            f"{MARK_DASH} timeout {p['timeout_minutes']}m"
+            f"{MARK_DASH} timeout {p['timeout_minutes']}m {MARK_DASH} {has_image}"
         )
     embed.description = "\n".join(lines)
     return embed

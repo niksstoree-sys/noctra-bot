@@ -387,8 +387,14 @@ async def finalize_order(
     order_embed = embeds.order_summary_embed(order_row, product, variant, payment, saved_fields)
 
     reply_embeds = [order_embed]
-    if payment["instructions"]:
-        reply_embeds.append(embeds.info_embed(f"Payment -- {payment['name']}", payment["instructions"]))
+    if payment["instructions"] or payment["image_url"]:
+        reply_embeds.append(
+            embeds.info_embed(
+                f"Payment -- {payment['name']}",
+                payment["instructions"] or "Scan the QR code below to pay.",
+                image_url=payment["image_url"],
+            )
+        )
     reply_embeds.append(
         embeds.info_embed(
             "Already Paid?",
