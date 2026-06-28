@@ -1,7 +1,8 @@
-"""Admin commands: /product (create/edit/delete/list/visibility) and the
-nested /product field subgroup for admin-configurable dynamic checkout
-input fields (Username, User ID, Login Data, Email, Password, Server ID,
-Game ID, Custom Text).
+"""Admin commands: /product (create/edit/delete/list/visibility).
+
+Products now belong to a Category Type (Category -> Category Type ->
+Product) instead of a Category directly, and dynamic checkout fields live
+on the Category Type -- see bot.cogs.category_type for both.
 """
 
 from __future__ import annotations
@@ -12,33 +13,24 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bot.database.queries import categories as categories_q
-from bot.database.queries import fields as fields_q
+from bot.database.queries import category_types as category_types_q
 from bot.database.queries import products as products_q
 from bot.ui import embeds
-from bot.utils.autocomplete import category_autocomplete, product_autocomplete
+from bot.utils.autocomplete import category_type_autocomplete, product_autocomplete
 from bot.utils.helpers import RuntimeSettings
 from bot.utils.permissions import staff_only
+from bot.utils.validators import is_valid_emoji
 
 ProductType = Literal["manual", "automatic", "digital", "service"]
 StockType = Literal["unlimited", "manual"]
 DiscountType = Literal["none", "percent", "flat"]
-FieldType = Literal[
-    "username", "userid", "login", "email", "password", "serverid", "gameid", "custom"
-]
-Validation = Literal["none", "numeric", "alpha", "alphanumeric", "email"]
 
 
 class ProductCog(commands.Cog):
-    """Product catalogue management, plus dynamic checkout field configuration."""
+    """Product catalogue management."""
 
     product_group = app_commands.Group(
         name="product", description="Manage store products.", guild_only=True
-    )
-    field_group = app_commands.Group(
-        name="field",
-        description="Manage a product's dynamic checkout input fields.",
-        parent=product_group,
     )
 
     def __init__(self, bot: commands.Bot) -> None:
@@ -48,7 +40,7 @@ class ProductCog(commands.Cog):
 
     @product_group.command(name="create", description="Create a new product.")
     @app_commands.describe(
-        category="Category this product belongs to",
+        category_type="Category type this product belongs to",
         name="Product name",
         product_type="Delivery type",
         stock_type="Unlimited or manually tracked stock",
@@ -57,13 +49,14 @@ class ProductCog(commands.Cog):
         currency_label="Currency label, e.g. USD, IDR, Robux",
         description="Product description",
         image_url="Banner/thumbnail image URL (PNG/JPG/WebP)",
+        emoji="Optional emoji shown next to this product in /shop",
     )
-    @app_commands.autocomplete(category=category_autocomplete)
+    @app_commands.autocomplete(category_type=category_type_autocomplete)
     @staff_only()
     async def create(
         self,
         interaction: discord.Interaction,
-        category: int,
+        category_type: int,
         name: str,
         product_type: ProductType,
         stock_type: StockType,
@@ -72,15 +65,23 @@ class ProductCog(commands.Cog):
         currency_label: str | None = None,
         description: str | None = None,
         image_url: str | None = None,
+        emoji: str | None = None,
     ) -> None:
-        cat = await categories_q.get_category(self.bot.db, category)
-        if not cat:
-            await interaction.response.send_message(embed=embeds.error_embed("Category not found."), ephemeral=True)
+        if not await category_types_q.get_category_type(self.bot.db, category_type):
+            await interaction.response.send_message(embed=embeds.error_embed("Category type not found."), ephemeral=True)
+            return
+        if emoji and not is_valid_emoji(emoji):
+            await interaction.response.send_message(
+                embed=embeds.error_embed(
+                    "That doesn't look like a valid emoji. Use a regular emoji or a custom emoji from this server."
+                ),
+                ephemeral=True,
+            )
             return
         currency = currency_label or await RuntimeSettings(self.bot.db).default_currency()
         product_id = await products_q.create_product(
-            self.bot.db, category, name, description, product_type, stock_type,
-            stock_quantity, base_price, currency, image_url,
+            self.bot.db, category_type, name, description, product_type, stock_type,
+            stock_quantity, base_price, currency, image_url, emoji,
         )
         await interaction.response.send_message(
             embed=embeds.success_embed(f"Product **{name}** created with ID `{product_id}`."),
@@ -91,9 +92,10 @@ class ProductCog(commands.Cog):
     @app_commands.describe(
         product="Product to edit",
         name="New name",
-        category="Move to a different category",
+        category_type="Move to a different category type",
         description="New description",
         image_url="New banner/thumbnail URL",
+        emoji="New emoji (type none to remove it)",
         product_type="New delivery type",
         stock_type="New stock type",
         stock_quantity="New stock quantity (manual stock only)",
@@ -102,16 +104,17 @@ class ProductCog(commands.Cog):
         discount_type="Discount type, or none to remove it",
         discount_value="Discount value (percent number or flat amount)",
     )
-    @app_commands.autocomplete(product=product_autocomplete, category=category_autocomplete)
+    @app_commands.autocomplete(product=product_autocomplete, category_type=category_type_autocomplete)
     @staff_only()
     async def edit(
         self,
         interaction: discord.Interaction,
         product: int,
         name: str | None = None,
-        category: int | None = None,
+        category_type: int | None = None,
         description: str | None = None,
         image_url: str | None = None,
+        emoji: str | None = None,
         product_type: ProductType | None = None,
         stock_type: StockType | None = None,
         stock_quantity: int | None = None,
@@ -124,16 +127,26 @@ class ProductCog(commands.Cog):
         if not existing:
             await interaction.response.send_message(embed=embeds.error_embed("Product not found."), ephemeral=True)
             return
+        if emoji and emoji != "none" and not is_valid_emoji(emoji):
+            await interaction.response.send_message(
+                embed=embeds.error_embed(
+                    "That doesn't look like a valid emoji. Use a regular emoji or a custom emoji from this server."
+                ),
+                ephemeral=True,
+            )
+            return
 
         updates = {}
         if name is not None:
             updates["name"] = name
-        if category is not None:
-            updates["category_id"] = category
+        if category_type is not None:
+            updates["category_type_id"] = category_type
         if description is not None:
             updates["description"] = description
         if image_url is not None:
             updates["image_url"] = image_url
+        if emoji is not None:
+            updates["emoji"] = None if emoji == "none" else emoji
         if product_type is not None:
             updates["product_type"] = product_type
         if stock_type is not None:
@@ -154,7 +167,7 @@ class ProductCog(commands.Cog):
             embed=embeds.success_embed(f"Product `#{product}` updated."), ephemeral=True
         )
 
-    @product_group.command(name="delete", description="Delete a product and all its variants/fields.")
+    @product_group.command(name="delete", description="Delete a product.")
     @app_commands.describe(product="Product to delete")
     @app_commands.autocomplete(product=product_autocomplete)
     @staff_only()
@@ -179,136 +192,15 @@ class ProductCog(commands.Cog):
             embed=embeds.success_embed(f"Product `#{product}` is now **{state}**."), ephemeral=True
         )
 
-    @product_group.command(name="list", description="List products, optionally filtered by category.")
-    @app_commands.describe(category="Filter by category")
-    @app_commands.autocomplete(category=category_autocomplete)
+    @product_group.command(name="list", description="List products, optionally filtered by category type.")
+    @app_commands.describe(category_type="Filter by category type")
+    @app_commands.autocomplete(category_type=category_type_autocomplete)
     @staff_only()
-    async def list_products(self, interaction: discord.Interaction, category: int | None = None) -> None:
-        cat_row = await categories_q.get_category(self.bot.db, category) if category else None
-        rows = await products_q.list_products(self.bot.db, category_id=category)
+    async def list_products(self, interaction: discord.Interaction, category_type: int | None = None) -> None:
+        type_row = await category_types_q.get_category_type(self.bot.db, category_type) if category_type else None
+        rows = await products_q.list_products(self.bot.db, category_type_id=category_type)
         await interaction.response.send_message(
-            embed=embeds.product_list_embed(cat_row, rows), ephemeral=True
-        )
-
-    # -- Dynamic checkout fields ---------------------------------------------
-
-    @field_group.command(name="add", description="Add a dynamic checkout input field to a product.")
-    @app_commands.describe(
-        product="Product to add the field to",
-        label="Field label shown to the customer",
-        field_type="Kind of field",
-        required="Whether the customer must fill this in",
-        placeholder="Placeholder text shown in the input",
-        min_length="Minimum character length",
-        max_length="Maximum character length",
-        validation="Value validation rule",
-    )
-    @app_commands.autocomplete(product=product_autocomplete)
-    @staff_only()
-    async def field_add(
-        self,
-        interaction: discord.Interaction,
-        product: int,
-        label: str,
-        field_type: FieldType,
-        required: bool = True,
-        placeholder: str | None = None,
-        min_length: app_commands.Range[int, 0, 4000] = 0,
-        max_length: app_commands.Range[int, 1, 4000] = 100,
-        validation: Validation = "none",
-    ) -> None:
-        if not await products_q.get_product(self.bot.db, product):
-            await interaction.response.send_message(embed=embeds.error_embed("Product not found."), ephemeral=True)
-            return
-        field_id = await fields_q.create_field(
-            self.bot.db, product, label, field_type, required, placeholder,
-            min_length, max_length, validation,
-        )
-        await interaction.response.send_message(
-            embed=embeds.success_embed(f"Field **{label}** added with ID `{field_id}`."), ephemeral=True
-        )
-
-    @field_group.command(name="edit", description="Edit a dynamic checkout input field.")
-    @app_commands.describe(
-        product="Product the field belongs to",
-        field_id="ID of the field to edit (see /product field list)",
-        label="New label",
-        required="New required state",
-        placeholder="New placeholder",
-        min_length="New minimum length",
-        max_length="New maximum length",
-        validation="New validation rule",
-    )
-    @app_commands.autocomplete(product=product_autocomplete)
-    @staff_only()
-    async def field_edit(
-        self,
-        interaction: discord.Interaction,
-        product: int,
-        field_id: int,
-        label: str | None = None,
-        required: bool | None = None,
-        placeholder: str | None = None,
-        min_length: int | None = None,
-        max_length: int | None = None,
-        validation: Validation | None = None,
-    ) -> None:
-        existing = await fields_q.get_field(self.bot.db, field_id)
-        if not existing or existing["product_id"] != product:
-            await interaction.response.send_message(
-                embed=embeds.error_embed("Field not found on this product."), ephemeral=True
-            )
-            return
-        updates = {}
-        if label is not None:
-            updates["label"] = label
-        if required is not None:
-            updates["required"] = int(required)
-        if placeholder is not None:
-            updates["placeholder"] = placeholder
-        if min_length is not None:
-            updates["min_length"] = min_length
-        if max_length is not None:
-            updates["max_length"] = max_length
-        if validation is not None:
-            updates["validation"] = validation
-        await fields_q.update_field(self.bot.db, field_id, **updates)
-        await interaction.response.send_message(embed=embeds.success_embed("Field updated."), ephemeral=True)
-
-    @field_group.command(name="remove", description="Remove a dynamic checkout input field.")
-    @app_commands.describe(product="Product the field belongs to", field_id="ID of the field to remove")
-    @app_commands.autocomplete(product=product_autocomplete)
-    @staff_only()
-    async def field_remove(self, interaction: discord.Interaction, product: int, field_id: int) -> None:
-        existing = await fields_q.get_field(self.bot.db, field_id)
-        if not existing or existing["product_id"] != product:
-            await interaction.response.send_message(
-                embed=embeds.error_embed("Field not found on this product."), ephemeral=True
-            )
-            return
-        await fields_q.delete_field(self.bot.db, field_id)
-        await interaction.response.send_message(embed=embeds.success_embed("Field removed."), ephemeral=True)
-
-    @field_group.command(name="list", description="List a product's dynamic checkout input fields.")
-    @app_commands.describe(product="Product to inspect")
-    @app_commands.autocomplete(product=product_autocomplete)
-    @staff_only()
-    async def field_list(self, interaction: discord.Interaction, product: int) -> None:
-        rows = await fields_q.list_fields(self.bot.db, product)
-        if not rows:
-            await interaction.response.send_message(
-                embed=embeds.info_embed("Checkout Fields", "No fields configured for this product."),
-                ephemeral=True,
-            )
-            return
-        lines = [
-            f"`#{r['id']}` **{r['label']}** ({r['field_type']}) "
-            f"{'required' if r['required'] else 'optional'} -- "
-            f"{r['min_length']}-{r['max_length']} chars -- validation: {r['validation']}"
-            for r in rows
-        ]
-        await interaction.response.send_message(
-            embed=embeds.info_embed("Checkout Fields", "\n".join(lines)), ephemeral=True
+            embed=embeds.product_list_embed(type_row, rows), ephemeral=True
         )
 
 

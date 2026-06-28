@@ -11,7 +11,6 @@ from discord.ext import commands
 from bot.database.queries import orders as orders_q
 from bot.database.queries import payments as payments_q
 from bot.database.queries import products as products_q
-from bot.database.queries import variants as variants_q
 from bot.ui import embeds
 from bot.utils import order_actions
 from bot.utils.autocomplete import any_order_autocomplete
@@ -33,10 +32,9 @@ class OrderCog(commands.Cog):
         db = self.bot.db
         order = await orders_q.get_order(db, order_id)
         product = await products_q.get_product(db, order["product_id"])
-        variant = await variants_q.get_variant(db, order["variant_id"]) if order["variant_id"] else None
         payment = await payments_q.get_payment_method(db, order["payment_method_id"]) if order["payment_method_id"] else None
         field_values = await orders_q.get_field_values(db, order_id)
-        return embeds.order_summary_embed(order, product, variant, payment, field_values)
+        return embeds.order_summary_embed(order, product, payment, field_values)
 
     @order_group.command(name="view", description="View full details of an order.")
     @app_commands.describe(order="Order to view")
