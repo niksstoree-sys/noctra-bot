@@ -1,13 +1,18 @@
 """
-Interactive Views for NOCTRA: shop browsing (category/product selects), the
-purchase wizard (variant select -> dynamic fields -> payment select -> order
-confirmation), persistent ticket control buttons (general support only), and
-the button-only review flow (rating buttons -> optional text modal).
+Interactive Views for NOCTRA: shop browsing (Category -> Category Type ->
+Product selects), the purchase wizard (dynamic fields -> payment select ->
+order confirmation), persistent ticket control buttons (general support
+only), and the button-only review flow (rating buttons -> optional text
+modal).
+
+There is no "variant" concept -- each product under a category type is its
+own fully independent, fully priced item. Dynamic checkout fields live on
+the category type and are automatically shared by every product under it.
 
 The purchase wizard and review flow are DM-based: after the initial "Buy Now"
-click in a guild channel, every remaining step (variant/payment selects,
-checkout field modals, order confirmation, payment instructions, and later
-the review prompt) happens in the customer's DMs. This makes the whole store
+click in a guild channel, every remaining step (dynamic field modals,
+payment select, order confirmation, payment instructions, and later the
+review prompt) happens in the customer's DMs. This makes the whole store
 guild-agnostic by design -- the same catalogue/orders/reviews work no matter
 which server the bot is posted in, since nothing customer-facing depends on
 a per-guild ticket channel. Staff manage orders either via `/order` commands
@@ -28,13 +33,13 @@ from bot.core.logger import logger
 from bot.core.theme import COLOR_ACCENT
 from bot.database.queries import (
     categories as categories_q,
+    category_types as category_types_q,
     fields as fields_q,
     orders as orders_q,
     payments as payments_q,
     products as products_q,
     reviews as reviews_q,
     tickets as tickets_q,
-    variants as variants_q,
 )
 from bot.ui import embeds
 from bot.ui.modals import ReasonModal, ReviewTextModal, collect_dynamic_fields
@@ -47,7 +52,7 @@ MAX_SELECT_OPTIONS = 25
 
 
 # ============================================================================
-# SHOP BROWSING
+# SHOP BROWSING (Category -> Category Type -> Product)
 # ============================================================================
 
 class CategorySelect(discord.ui.Select):
@@ -57,6 +62,7 @@ class CategorySelect(discord.ui.Select):
                 label=cat["name"][:100],
                 value=str(cat["id"]),
                 description=(cat["description"] or "")[:100] or None,
+                emoji=cat["emoji"] or None,
             )
             for cat in categories[:MAX_SELECT_OPTIONS]
         ]
@@ -66,9 +72,15 @@ class CategorySelect(discord.ui.Select):
         db = interaction.client.db  # type: ignore[attr-defined]
         category_id = int(self.values[0])
         category = await categories_q.get_category(db, category_id)
-        products = await products_q.list_products(db, category_id=category_id, visible_only=True)
-        embed = embeds.product_list_embed(category, products)
-        view = ProductBrowseView(category, products)
+        category_types = await category_types_q.list_category_types(db, category_id=category_id, enabled_only=True)
+        embed = embeds.base_embed(
+            f"NOCTRA -- {category['emoji'] + ' ' if category['emoji'] else ''}{category['name']}",
+            "Select a type below to see its products.",
+            color=COLOR_ACCENT,
+        )
+        if not category_types:
+            embed.description = "No product types in this category yet."
+        view = CategoryTypeBrowseView(category, category_types)
         await interaction.response.edit_message(embed=embed, view=view)
 
 
@@ -78,23 +90,26 @@ class CategoryBrowseView(discord.ui.View):
         self.add_item(CategorySelect(categories))
 
 
-class ProductSelect(discord.ui.Select):
-    def __init__(self, products: list):
+class CategoryTypeSelect(discord.ui.Select):
+    def __init__(self, category_types: list):
         options = [
-            discord.SelectOption(label=p["name"][:100], value=str(p["id"]))
-            for p in products[:MAX_SELECT_OPTIONS]
+            discord.SelectOption(
+                label=ct["name"][:100],
+                value=str(ct["id"]),
+                description=(ct["description"] or "")[:100] or None,
+                emoji=ct["emoji"] or None,
+            )
+            for ct in category_types[:MAX_SELECT_OPTIONS]
         ]
-        super().__init__(placeholder="View a product...", options=options, min_values=1, max_values=1)
+        super().__init__(placeholder="Choose a type...", options=options, min_values=1, max_values=1)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         db = interaction.client.db  # type: ignore[attr-defined]
-        product_id = int(self.values[0])
-        product = await products_q.get_product(db, product_id)
-        variants = await variants_q.list_variants(db, product_id)
-        fields = await fields_q.list_fields(db, product_id)
-        rating_summary = await reviews_q.get_rating_summary(db, product_id)
-        embed = embeds.product_detail_embed(product, variants, fields, rating_summary)
-        view = ProductDetailView(product)
+        category_type_id = int(self.values[0])
+        category_type = await category_types_q.get_category_type(db, category_type_id)
+        products = await products_q.list_products(db, category_type_id=category_type_id, visible_only=True)
+        embed = embeds.product_list_embed(category_type, products)
+        view = ProductBrowseView(category_type, products)
         await interaction.response.edit_message(embed=embed, view=view)
 
 
@@ -112,12 +127,59 @@ class BackToCategoriesButton(discord.ui.Button):
         await interaction.response.edit_message(embed=embed, view=view)
 
 
+class CategoryTypeBrowseView(discord.ui.View):
+    def __init__(self, category, category_types: list) -> None:
+        super().__init__(timeout=300)
+        if category_types:
+            self.add_item(CategoryTypeSelect(category_types))
+        self.add_item(BackToCategoriesButton())
+
+
+class ProductSelect(discord.ui.Select):
+    def __init__(self, products: list):
+        options = [
+            discord.SelectOption(
+                label=p["name"][:100], value=str(p["id"]), emoji=p["emoji"] or None
+            )
+            for p in products[:MAX_SELECT_OPTIONS]
+        ]
+        super().__init__(placeholder="View a product...", options=options, min_values=1, max_values=1)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        db = interaction.client.db  # type: ignore[attr-defined]
+        product_id = int(self.values[0])
+        product = await products_q.get_product(db, product_id)
+        fields = await fields_q.list_fields(db, product["category_type_id"])
+        rating_summary = await reviews_q.get_rating_summary(db, product_id)
+        embed = embeds.product_detail_embed(product, fields, rating_summary)
+        view = ProductDetailView(product)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class BackToCategoryTypesButton(discord.ui.Button):
+    def __init__(self, category_id: int) -> None:
+        super().__init__(label="Back", style=discord.ButtonStyle.secondary)
+        self.category_id = category_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        db = interaction.client.db  # type: ignore[attr-defined]
+        category = await categories_q.get_category(db, self.category_id)
+        category_types = await category_types_q.list_category_types(db, category_id=self.category_id, enabled_only=True)
+        embed = embeds.base_embed(
+            f"NOCTRA -- {category['emoji'] + ' ' if category and category['emoji'] else ''}{category['name'] if category else ''}",
+            "Select a type below to see its products.",
+            color=COLOR_ACCENT,
+        )
+        view = CategoryTypeBrowseView(category, category_types)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
 class ProductBrowseView(discord.ui.View):
-    def __init__(self, category, products: list):
+    def __init__(self, category_type, products: list) -> None:
         super().__init__(timeout=300)
         if products:
             self.add_item(ProductSelect(products))
-        self.add_item(BackToCategoriesButton())
+        self.add_item(BackToCategoryTypesButton(category_type["category_id"] if category_type else 0))
 
 
 class BuyButton(discord.ui.Button):
@@ -133,7 +195,7 @@ class ProductDetailView(discord.ui.View):
     def __init__(self, product) -> None:
         super().__init__(timeout=300)
         self.add_item(BuyButton(product))
-        self.add_item(BackToCategoriesButton())
+        self.add_item(BackToCategoryTypesButton(product["category_type_id"]))
 
 
 class ShopPanelView(discord.ui.View):
@@ -166,7 +228,7 @@ class ShopPanelView(discord.ui.View):
 
 
 # ============================================================================
-# PURCHASE WIZARD
+# PURCHASE WIZARD (DM-based)
 # ============================================================================
 
 async def start_purchase(interaction: discord.Interaction, product_id: int) -> None:
@@ -184,19 +246,11 @@ async def start_purchase(interaction: discord.Interaction, product_id: int) -> N
         return
 
     dm_channel = await interaction.user.create_dm()
-    variants = await variants_q.list_variants(db, product_id, available_only=True)
-
+    embed = embeds.info_embed(
+        "Continue Your Order", f"Click below to continue ordering **{product['name']}**."
+    )
     try:
-        if variants:
-            embed = embeds.info_embed(
-                "Select a Variant", f"Choose a variant for **{product['name']}** to continue your order."
-            )
-            await dm_channel.send(embed=embed, view=VariantSelectView(product, variants))
-        else:
-            embed = embeds.info_embed(
-                "Continue Your Order", f"Click below to continue ordering **{product['name']}**."
-            )
-            await dm_channel.send(embed=embed, view=ContinueOrderView(product))
+        await dm_channel.send(embed=embed, view=ContinueOrderView(product))
     except discord.Forbidden:
         await interaction.response.send_message(
             embed=embeds.error_embed(
@@ -214,17 +268,17 @@ async def start_purchase(interaction: discord.Interaction, product_id: int) -> N
 
 
 class ContinueOrderButton(discord.ui.Button):
-    """Shown in DM when a product has no variants -- gives the customer
-    something to click so a Modal can be opened for checkout fields, since
-    Discord only allows opening a Modal in response to a component
-    interaction, never from a plain bot-sent message."""
+    """Gives the customer something to click in their DM so a Modal can be
+    opened for checkout fields, since Discord only allows opening a Modal in
+    response to a component interaction, never from a plain bot-sent
+    message."""
 
     def __init__(self, product) -> None:
         super().__init__(label="Continue Order", style=discord.ButtonStyle.success)
         self.product = product
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        await proceed_to_fields(interaction, self.product, None)
+        await proceed_to_fields(interaction, self.product)
 
 
 class ContinueOrderView(discord.ui.View):
@@ -233,39 +287,12 @@ class ContinueOrderView(discord.ui.View):
         self.add_item(ContinueOrderButton(product))
 
 
-class VariantSelect(discord.ui.Select):
-    def __init__(self, product, variants: list):
-        self.product = product
-        self.variant_map = {str(v["id"]): v for v in variants}
-        options = []
-        for v in variants[:MAX_SELECT_OPTIONS]:
-            final = calculate_final_price(v["price"], v["discount_type"], v["discount_value"])
-            options.append(
-                discord.SelectOption(
-                    label=v["title"][:100],
-                    value=str(v["id"]),
-                    description=f"{final:,.2f} {product['currency_label']}",
-                )
-            )
-        super().__init__(placeholder="Choose a variant...", options=options, min_values=1, max_values=1)
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        variant = self.variant_map[self.values[0]]
-        await proceed_to_fields(interaction, self.product, variant)
-
-
-class VariantSelectView(discord.ui.View):
-    def __init__(self, product, variants: list) -> None:
-        super().__init__(timeout=180)
-        self.add_item(VariantSelect(product, variants))
-
-
-async def proceed_to_fields(interaction: discord.Interaction, product, variant) -> None:
+async def proceed_to_fields(interaction: discord.Interaction, product) -> None:
     db = interaction.client.db  # type: ignore[attr-defined]
-    fields = await fields_q.list_fields(db, product["id"])
+    fields = await fields_q.list_fields(db, product["category_type_id"])
 
     if not fields:
-        await proceed_to_payment(interaction, product, variant, [])
+        await proceed_to_payment(interaction, product, [])
         return
 
     async def on_fields_complete(inter: discord.Interaction, values_by_id: dict) -> None:
@@ -291,14 +318,12 @@ async def proceed_to_fields(interaction: discord.Interaction, product, variant) 
                 embed=embeds.error_embed("\n".join(errors)), ephemeral=True
             )
             return
-        await proceed_to_payment(inter, product, variant, cleaned)
+        await proceed_to_payment(inter, product, cleaned)
 
     await collect_dynamic_fields(interaction, fields, on_fields_complete)
 
 
-async def proceed_to_payment(
-    interaction: discord.Interaction, product, variant, field_values: list
-) -> None:
+async def proceed_to_payment(interaction: discord.Interaction, product, field_values: list) -> None:
     if not interaction.response.is_done():
         await interaction.response.defer(ephemeral=True, thinking=True)
 
@@ -315,18 +340,17 @@ async def proceed_to_payment(
         return
 
     if len(methods) == 1:
-        await finalize_order(interaction, product, variant, field_values, methods[0])
+        await finalize_order(interaction, product, field_values, methods[0])
         return
 
     embed = embeds.info_embed("Select a Payment Method", "Choose how you would like to pay.")
-    view = PaymentSelectView(product, variant, field_values, methods)
+    view = PaymentSelectView(product, field_values, methods)
     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
 class PaymentSelect(discord.ui.Select):
-    def __init__(self, product, variant, field_values: list, methods: list):
+    def __init__(self, product, field_values: list, methods: list):
         self.product = product
-        self.variant = variant
         self.field_values = field_values
         self.method_map = {str(m["id"]): m for m in methods}
         options = [
@@ -337,24 +361,21 @@ class PaymentSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         method = self.method_map[self.values[0]]
-        await finalize_order(interaction, self.product, self.variant, self.field_values, method)
+        await finalize_order(interaction, self.product, self.field_values, method)
 
 
 class PaymentSelectView(discord.ui.View):
-    def __init__(self, product, variant, field_values: list, methods: list) -> None:
+    def __init__(self, product, field_values: list, methods: list) -> None:
         super().__init__(timeout=180)
-        self.add_item(PaymentSelect(product, variant, field_values, methods))
+        self.add_item(PaymentSelect(product, field_values, methods))
 
 
-async def finalize_order(
-    interaction: discord.Interaction, product, variant, field_values: list, payment
-) -> None:
+async def finalize_order(interaction: discord.Interaction, product, field_values: list, payment) -> None:
     if not interaction.response.is_done():
         await interaction.response.defer(ephemeral=True, thinking=True)
 
     db = interaction.client.db  # type: ignore[attr-defined]
-    base = variant if variant else product
-    unit_price = calculate_final_price(base["price" if variant else "base_price"], base["discount_type"], base["discount_value"])
+    unit_price = calculate_final_price(product["base_price"], product["discount_type"], product["discount_value"])
 
     stock_reserved = False
     if product["stock_type"] == "manual":
@@ -371,7 +392,6 @@ async def finalize_order(
         db,
         interaction.user.id,
         product["id"],
-        variant["id"] if variant else None,
         payment["id"],
         unit_price,
         product["currency_label"],
@@ -384,7 +404,7 @@ async def finalize_order(
 
     order_row = await orders_q.get_order(db, order_id)
     saved_fields = await orders_q.get_field_values(db, order_id)
-    order_embed = embeds.order_summary_embed(order_row, product, variant, payment, saved_fields)
+    order_embed = embeds.order_summary_embed(order_row, product, payment, saved_fields)
 
     reply_embeds = [order_embed]
     if payment["instructions"] or payment["image_url"]:
@@ -419,7 +439,7 @@ async def finalize_order(
     if log_channel_id:
         log_channel = interaction.client.get_channel(log_channel_id)
         if isinstance(log_channel, discord.TextChannel):
-            staff_embed = embeds.order_summary_embed(order_row, product, variant, payment, saved_fields)
+            staff_embed = embeds.order_summary_embed(order_row, product, payment, saved_fields)
             staff_embed.add_field(name="Customer", value=f"<@{interaction.user.id}> ({interaction.user})", inline=False)
             staff_view = discord.ui.View(timeout=None)
             for action in ("mark_paid", "mark_completed", "cancel", "refund"):
@@ -428,7 +448,6 @@ async def finalize_order(
                 await log_channel.send(embed=staff_embed, view=staff_view)
             except discord.HTTPException:
                 logger.exception("Failed to post order #%s to the order-log channel.", order_id)
-
 
 # ============================================================================
 # TICKET CONTROLS (persistent)

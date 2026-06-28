@@ -68,12 +68,32 @@ def category_list_embed(categories: list) -> discord.Embed:
     lines = []
     for cat in categories:
         state = "enabled" if cat["enabled"] else "disabled"
+        emoji_prefix = f"{cat['emoji']} " if cat["emoji"] else ""
         lines.append(
-            f"{MARK_BULLET} **#{cat['id']} -- {cat['name']}** "
+            f"{MARK_BULLET} {emoji_prefix}**#{cat['id']} -- {cat['name']}** "
             f"{MARK_DASH} pos {cat['position']} {MARK_DASH} {state}"
         )
         if cat["description"]:
             lines.append(f"    {cat['description']}")
+    embed.description = "\n".join(lines)
+    return embed
+
+
+def category_type_list_embed(category_types: list) -> discord.Embed:
+    embed = base_embed("NOCTRA -- Category Types", color=COLOR_PRIMARY)
+    if not category_types:
+        embed.description = "No category types have been created yet."
+        return embed
+    lines = []
+    for ct in category_types:
+        state = "enabled" if ct["enabled"] else "disabled"
+        emoji_prefix = f"{ct['emoji']} " if ct["emoji"] else ""
+        lines.append(
+            f"{MARK_BULLET} {emoji_prefix}**#{ct['id']} -- {ct['name']}** "
+            f"{MARK_DASH} category #{ct['category_id']} {MARK_DASH} pos {ct['position']} {MARK_DASH} {state}"
+        )
+        if ct["description"]:
+            lines.append(f"    {ct['description']}")
     embed.description = "\n".join(lines)
     return embed
 
@@ -90,30 +110,34 @@ def product_summary_line(product, rating_summary: dict | None = None) -> str:
     if rating_summary and rating_summary["total"]:
         rating_text = f" {MARK_DASH} {rating_summary['average']:.1f}/5 ({rating_summary['total']} reviews)"
     visibility = "" if product["visible"] else " [hidden]"
-    return f"{MARK_BULLET} **{product['name']}**{visibility} {MARK_DASH} {price_text}{rating_text}"
+    emoji_prefix = f"{product['emoji']} " if product["emoji"] else ""
+    return f"{MARK_BULLET} {emoji_prefix}**{product['name']}**{visibility} {MARK_DASH} {price_text}{rating_text}"
 
 
-def product_list_embed(category, products: list) -> discord.Embed:
-    title = f"NOCTRA -- {category['name']}" if category else "NOCTRA -- Products"
+def product_list_embed(category_type, products: list) -> discord.Embed:
+    if category_type:
+        emoji_prefix = f"{category_type['emoji']} " if category_type["emoji"] else ""
+        title = f"NOCTRA -- {emoji_prefix}{category_type['name']}"
+    else:
+        title = "NOCTRA -- Products"
     embed = base_embed(title, color=COLOR_PRIMARY)
     if not products:
-        embed.description = "No products in this category yet."
+        embed.description = "No products in this category type yet."
         return embed
     embed.description = "\n".join(product_summary_line(p) for p in products)
     return embed
 
 
-def product_detail_embed(
-    product, variants: list, fields: list, rating_summary: dict
-) -> discord.Embed:
+def product_detail_embed(product, fields: list, rating_summary: dict) -> discord.Embed:
     final = calculate_final_price(
         product["base_price"], product["discount_type"], product["discount_value"]
     )
     price_text = format_price(final, product["currency_label"])
     dlabel = discount_label(product["discount_type"], product["discount_value"])
 
+    title = f"{product['emoji']} {product['name']}" if product["emoji"] else product["name"]
     embed = base_embed(
-        product["name"],
+        title,
         product["description"] or "No description provided.",
         color=COLOR_PRIMARY,
         thumbnail_url=product["image_url"] or None,
@@ -132,16 +156,6 @@ def product_detail_embed(
     else:
         stock_text = f"{product['stock_quantity']} in stock"
     embed.add_field(name="Stock", value=stock_text, inline=True)
-
-    if variants:
-        variant_lines = []
-        for v in variants:
-            vfinal = calculate_final_price(v["price"], v["discount_type"], v["discount_value"])
-            avail = "" if v["available"] else " (unavailable)"
-            variant_lines.append(
-                f"{MARK_BULLET} {v['title']}{avail} {MARK_DASH} {format_price(vfinal, product['currency_label'])}"
-            )
-        embed.add_field(name="Variants", value="\n".join(variant_lines), inline=False)
 
     if fields:
         req = [f["label"] for f in fields if f["required"]]
@@ -171,7 +185,6 @@ def product_detail_embed(
 def order_summary_embed(
     order_row,
     product_row,
-    variant_row,
     payment_row,
     field_values: list | None = None,
 ) -> discord.Embed:
@@ -179,10 +192,7 @@ def order_summary_embed(
     color = STATUS_COLORS.get(status, COLOR_PRIMARY)
     embed = base_embed(f"Order #{order_row['id']}", color=color)
 
-    product_line = product_row["name"]
-    if variant_row:
-        product_line += f" -- {variant_row['title']}"
-    embed.add_field(name="Product", value=product_line, inline=True)
+    embed.add_field(name="Product", value=product_row["name"], inline=True)
     embed.add_field(
         name="Price",
         value=format_price(order_row["total_price"], order_row["currency_label"]),

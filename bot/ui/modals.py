@@ -4,7 +4,8 @@ Modal components for NOCTRA.
 Modals are used specifically where the set of inputs is only known at
 runtime (the admin-configured dynamic checkout fields) or where a single
 short freeform text response is needed (close/cancel/refund reasons).
-Everything with a fixed, well-typed shape (categories, products, variants,
+Everything with a fixed, well-typed shape (categories, category types,
+products,
 payment methods) is handled via slash command options instead, which is the
 more idiomatic discord.py pattern for structured CRUD and keeps autocomplete
 available on those commands.
