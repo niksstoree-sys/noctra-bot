@@ -12,6 +12,7 @@ from bot.database.queries import orders as orders_q
 from bot.database.queries import products as products_q
 from bot.database.queries import reviews as reviews_q
 from bot.ui import embeds
+from bot.utils import review_actions
 from bot.utils.autocomplete import product_autocomplete
 from bot.utils.permissions import staff_only
 
@@ -109,7 +110,7 @@ class ReviewCog(commands.Cog):
                 ephemeral=True,
             )
             return
-        await reviews_q.create_review(
+        review_id = await reviews_q.create_review(
             self.bot.db, order, order_row["product_id"], interaction.user.id, rating, review, anonymous
         )
         await interaction.response.send_message(
@@ -118,6 +119,7 @@ class ReviewCog(commands.Cog):
             ),
             ephemeral=True,
         )
+        await review_actions.notify_staff_new_review(self.bot, review_id)
 
     @review_group.command(name="edit", description="Edit your existing review.")
     @app_commands.describe(order="Order whose review you want to edit", rating="New rating", review="New review text", anonymous="Hide your name")
@@ -145,6 +147,7 @@ class ReviewCog(commands.Cog):
         await interaction.response.send_message(
             embed=embeds.success_embed("Review updated and resubmitted for approval."), ephemeral=True
         )
+        await review_actions.notify_staff_new_review(self.bot, existing["id"])
 
     @review_group.command(name="delete", description="Delete your review.")
     @app_commands.describe(order="Order whose review you want to delete")
