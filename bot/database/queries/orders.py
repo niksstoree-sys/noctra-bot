@@ -14,7 +14,6 @@ async def create_order(
     db: Database,
     user_id: int,
     product_id: int,
-    variant_id: int | None,
     payment_method_id: int | None,
     unit_price: float,
     currency_label: str,
@@ -29,12 +28,12 @@ async def create_order(
     return await db.execute(
         """
         INSERT INTO orders
-            (user_id, product_id, variant_id, payment_method_id, unit_price,
+            (user_id, product_id, payment_method_id, unit_price,
              total_price, currency_label, stock_reserved, payment_deadline)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            user_id, product_id, variant_id, payment_method_id, unit_price,
+            user_id, product_id, payment_method_id, unit_price,
             unit_price, currency_label, int(stock_reserved), deadline,
         ),
     )

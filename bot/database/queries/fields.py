@@ -2,6 +2,10 @@
 Query helpers for `product_fields` -- the admin-configurable dynamic input
 fields (Username, User ID, Login Data, Email, Password, Server ID, Game ID,
 Custom Text, ...) collected from the customer at checkout via Modals.
+
+These live on the CATEGORY TYPE (not the product) so every product under a
+type automatically shares the same checkout fields -- configure once per
+type instead of once per product.
 """
 
 from __future__ import annotations
@@ -15,13 +19,13 @@ FIELD_TYPES = (
 VALIDATIONS = ("none", "numeric", "alpha", "alphanumeric", "email")
 
 # Discord Modals support a maximum of 5 text input components, so when a
-# product has more than 5 fields configured we chain modals in batches.
+# category type has more than 5 fields configured we chain modals in batches.
 MODAL_BATCH_SIZE = 5
 
 
 async def create_field(
     db: Database,
-    product_id: int,
+    category_type_id: int,
     label: str,
     field_type: str,
     required: bool,
@@ -31,19 +35,19 @@ async def create_field(
     validation: str,
 ) -> int:
     row = await db.fetchone(
-        "SELECT COALESCE(MAX(position), -1) + 1 AS p FROM product_fields WHERE product_id = ?",
-        (product_id,),
+        "SELECT COALESCE(MAX(position), -1) + 1 AS p FROM product_fields WHERE category_type_id = ?",
+        (category_type_id,),
     )
     position = row["p"] if row else 0
     return await db.execute(
         """
         INSERT INTO product_fields
-            (product_id, label, field_type, required, placeholder, min_length,
+            (category_type_id, label, field_type, required, placeholder, min_length,
              max_length, validation, position)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            product_id, label, field_type, int(required), placeholder,
+            category_type_id, label, field_type, int(required), placeholder,
             min_length, max_length, validation, position,
         ),
     )
@@ -76,8 +80,8 @@ async def get_field(db: Database, field_id: int):
     return await db.fetchone("SELECT * FROM product_fields WHERE id = ?", (field_id,))
 
 
-async def list_fields(db: Database, product_id: int):
+async def list_fields(db: Database, category_type_id: int):
     return await db.fetchall(
-        "SELECT * FROM product_fields WHERE product_id = ? ORDER BY position ASC, id ASC",
-        (product_id,),
+        "SELECT * FROM product_fields WHERE category_type_id = ? ORDER BY position ASC, id ASC",
+        (category_type_id,),
     )

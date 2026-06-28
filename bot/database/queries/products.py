@@ -11,7 +11,7 @@ VALID_DISCOUNT_TYPES = (None, "percent", "flat")
 
 async def create_product(
     db: Database,
-    category_id: int,
+    category_type_id: int,
     name: str,
     description: str | None,
     product_type: str,
@@ -20,18 +20,19 @@ async def create_product(
     base_price: float,
     currency_label: str,
     image_url: str | None = None,
+    emoji: str | None = None,
 ) -> int:
     row = await db.fetchone("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM products")
     position = row["p"] if row else 0
     return await db.execute(
         """
         INSERT INTO products
-            (category_id, name, description, image_url, product_type, stock_type,
+            (category_type_id, name, description, image_url, emoji, product_type, stock_type,
              stock_quantity, base_price, currency_label, position)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            category_id, name, description, image_url, product_type, stock_type,
+            category_type_id, name, description, image_url, emoji, product_type, stock_type,
             stock_quantity, base_price, currency_label, position,
         ),
     )
@@ -42,7 +43,7 @@ async def update_product(db: Database, product_id: int, **fields) -> None:
     if not fields:
         return
     allowed = {
-        "category_id", "name", "description", "image_url", "product_type",
+        "category_type_id", "name", "description", "image_url", "emoji", "product_type",
         "stock_type", "stock_quantity", "visible", "base_price", "currency_label",
         "discount_type", "discount_value", "position",
     }
@@ -71,13 +72,13 @@ async def get_product(db: Database, product_id: int):
 
 
 async def list_products(
-    db: Database, category_id: int | None = None, visible_only: bool = False
+    db: Database, category_type_id: int | None = None, visible_only: bool = False
 ):
     query = "SELECT * FROM products WHERE 1 = 1"
     params: list = []
-    if category_id is not None:
-        query += " AND category_id = ?"
-        params.append(category_id)
+    if category_type_id is not None:
+        query += " AND category_type_id = ?"
+        params.append(category_type_id)
     if visible_only:
         query += " AND visible = 1"
     query += " ORDER BY position ASC, id ASC"
