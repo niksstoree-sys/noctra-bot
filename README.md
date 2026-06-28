@@ -49,6 +49,8 @@ bot/
     autocomplete.py          Shared autocomplete callbacks
     order_actions.py         Status transitions + customer DM notifications,
                              shared by /order commands and order-log buttons
+    review_actions.py        Posts new/edited reviews to the order-log
+                             channel with Approve/Reject/Hide buttons
     ticket_actions.py        Shared create/close/reopen ticket-channel logic
     transcript.py            Dark-themed HTML ticket transcript generator
   cogs/
@@ -198,6 +200,14 @@ rating opens a small modal for an optional written review, and submitting it
 creates the review straight away -- no `/review submit` needed.
 `/review edit|delete|list` (and the admin `/review admin
 approve|reject|hide|delete`) are still there as a backup/moderation path.
+
+**Staff get notified too:** every new review (and every re-submitted one
+after a customer edits it) is posted straight to the order-log channel --
+the same one configured with `/settings order_log_channel` -- with
+Approve/Reject/Hide buttons right there, so staff don't have to remember to
+go check. No order-log channel configured yet? The review still saves fine,
+staff just won't get a push notification for it; `/review admin approve`
+works as the manual fallback either way.
 
 ## Commands
 
