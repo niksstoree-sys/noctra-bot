@@ -1,4 +1,4 @@
-"""Shared autocomplete callbacks for category/product/variant/payment/order options."""
+"""Shared autocomplete callbacks for category/category_type/product/payment/order options."""
 
 from __future__ import annotations
 
@@ -6,10 +6,10 @@ import discord
 from discord import app_commands
 
 from bot.database.queries import categories as categories_q
+from bot.database.queries import category_types as category_types_q
 from bot.database.queries import orders as orders_q
 from bot.database.queries import payments as payments_q
 from bot.database.queries import products as products_q
-from bot.database.queries import variants as variants_q
 
 
 async def category_autocomplete(
@@ -25,6 +25,16 @@ async def category_autocomplete(
     ]
 
 
+async def category_type_autocomplete(
+    interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[int]]:
+    db = interaction.client.db  # type: ignore[attr-defined]
+    rows = await category_types_q.search_category_types(db, current, limit=25)
+    return [
+        app_commands.Choice(name=f"#{r['id']} -- {r['name']}", value=r["id"]) for r in rows
+    ]
+
+
 async def product_autocomplete(
     interaction: discord.Interaction, current: str
 ) -> list[app_commands.Choice[int]]:
@@ -32,22 +42,6 @@ async def product_autocomplete(
     rows = await products_q.search_products(db, current, limit=25)
     return [
         app_commands.Choice(name=f"#{r['id']} -- {r['name']}", value=r["id"]) for r in rows
-    ]
-
-
-async def variant_autocomplete(
-    interaction: discord.Interaction, current: str
-) -> list[app_commands.Choice[int]]:
-    db = interaction.client.db  # type: ignore[attr-defined]
-    product_id = getattr(interaction.namespace, "product", None)
-    if not product_id:
-        return []
-    rows = await variants_q.list_variants(db, int(product_id))
-    current_lower = current.lower()
-    matches = [r for r in rows if current_lower in r["title"].lower()]
-    return [
-        app_commands.Choice(name=f"#{r['id']} -- {r['title']}", value=r["id"])
-        for r in matches[:25]
     ]
 
 
