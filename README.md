@@ -27,23 +27,24 @@ bot/
     bot.py                   NoctraBot client (cogs, persistent views, sync)
     errors.py                Global slash-command error handler
   database/
-    core.py                  Async SQLite wrapper (aiosqlite)
+    core.py                  Async SQLite wrapper (aiosqlite) + auto migrations
     schema.sql                All tables (see below)
-    queries/                 One module per domain: categories, products,
-                             variants, fields, payments, orders, tickets,
+    queries/                 One module per domain: categories, category_types,
+                             products, fields, payments, orders, tickets,
                              reviews, settings -- plain async functions,
                              no ORM, easy to port to Postgres later.
   ui/
     embeds.py                All embed builders (dark purple / blue violet)
     modals.py                Dynamic checkout-field modal(s) + reusable
                              reason modal (close/cancel/refund)
-    views.py                 Shop browsing, DM-based purchase wizard, support
+    views.py                 Shop browsing (Category -> Category Type ->
+                             Product), DM-based purchase wizard, support
                              ticket controls (persistent), order-log staff
                              buttons + review prompt (dynamic, restart-safe)
   utils/
     helpers.py                Pricing math, currency formatting, runtime
                              settings resolver (DB override -> .env default)
-    validators.py            Dynamic field validation rules
+    validators.py            Dynamic field validation + real emoji validation
     permissions.py           Staff-only check (Administrator OR staff role)
     autocomplete.py          Shared autocomplete callbacks
     order_actions.py         Status transitions + customer DM notifications,
@@ -51,29 +52,60 @@ bot/
     ticket_actions.py        Shared create/close/reopen ticket-channel logic
     transcript.py            Dark-themed HTML ticket transcript generator
   cogs/
-    category.py   /category            (admin)
-    product.py     /product (+ field)  (admin)
-    variant.py     /variant            (admin)
-    payment.py     /payment            (admin)
-    settings.py    /settings           (admin)
-    shop.py        /shop, /buy         (user)
-    order.py       /order (admin), /orders (user)
-    ticket.py      /ticket             (admin + user)
-    review.py      /review (+ admin)   (user + admin)
-    payment_proof.py  DM relay: forwards customer payment-proof messages
-                       to the order-log channel, tagged by order ID
-    tasks.py       background loops: payment timeout, ticket auto-archive
+    category.py     /category                   (admin)
+    category_type.py /category_type (+ field)    (admin)
+    product.py       /product                    (admin)
+    payment.py        /payment                    (admin)
+    settings.py        /settings                   (admin)
+    shop.py             /shop, /buy                 (user)
+    order.py             /order (admin), /orders (user)
+    ticket.py             /ticket                     (admin + user)
+    review.py             /review (+ admin)           (user + admin)
+    payment_proof.py      DM relay: forwards customer payment-proof messages
+                          to the order-log channel, tagged by order ID
+    tasks.py             background loops: payment timeout, ticket auto-archive
 ```
+
+### Catalogue structure: Category -> Category Type -> Product
+
+Three levels, in this order:
+
+- **Category** (`/category`) -- top-level grouping, e.g. "ROBLOX".
+- **Category Type** (`/category_type`) -- sits under a category, e.g. "Adopt
+  Me", "Brookhaven". This is also where dynamic checkout fields live
+  (`/category_type field add|edit|remove|list`) -- configure them **once
+  per type** and every product under that type automatically uses the same
+  fields, instead of having to set them up product-by-product.
+- **Product** (`/product`) -- the actual purchasable item, e.g. "1000
+  Coins". Each product is fully independent with its own price, stock, and
+  discount -- there's no separate "variant" layer; if you used to model
+  variants as priced sub-options of one product, model each one as its own
+  product under the same category type instead.
+
+Category, category type, and product can each optionally carry an `emoji`
+(a real emoji or a custom emoji from this server) shown next to them while
+browsing in `/shop`.
 
 ### Database
 
 SQLite via `aiosqlite`, WAL mode, foreign keys on. Tables: `categories`,
-`products`, `product_variants`, `product_fields` (dynamic checkout inputs),
-`payment_methods`, `orders`, `order_field_values`, `tickets`, `reviews`,
-`settings`. See `bot/database/schema.sql` for the full DDL. Because every
-query lives in a small async function (not raw SQL scattered through cogs),
-swapping SQLite for Postgres/MySQL later only means rewriting
-`bot/database/core.py` and the connection logic in the `queries/` modules.
+`category_types`, `products`, `product_fields` (dynamic checkout inputs,
+now per category type), `payment_methods`, `orders`, `order_field_values`,
+`tickets`, `reviews`, `settings`. See `bot/database/schema.sql` for the full
+DDL. Because every query lives in a small async function (not raw SQL
+scattered through cogs), swapping SQLite for Postgres/MySQL later only means
+rewriting `bot/database/core.py` and the connection logic in the `queries/`
+modules.
+
+`bot/database/core.py` also runs small forward-only migrations on every
+startup (new columns, and the one-time move from the old Category -> Product
+structure to Category -> Category Type -> Product) -- safe to run repeatedly,
+and existing data is preserved: any products you'd already created get a
+"General" category type auto-created under their old category, and any
+checkout fields move from that product onto the new category type. If
+several products under the same old category had different fields, you may
+see duplicates on the new type afterward -- run `/category_type field list`
+and remove what you don't need.
 
 ### Multi-server design
 
@@ -98,13 +130,13 @@ it can be added.
 
 Staff posts the panel **once** with `/settings shop_panel`. From then on,
 customers never type anything: **Browse Store** button -> category select ->
-product select -> **Buy Now** button. At that point NOCTRA opens a DM with
-the customer and the rest happens there: (variant select, if any) -> dynamic
+category type select -> product select -> **Buy Now** button. At that point
+NOCTRA opens a DM with the customer and the rest happens there: dynamic
 checkout fields via Modal (chained automatically in batches of 5 if a
-product has more than 5 fields, since that's Discord's per-modal limit) ->
-payment method select (if more than one is enabled) -> order created (stock
-reserved if manual stock) -> order summary + payment instructions delivered
-straight to their DM.
+category type has more than 5 fields, since that's Discord's per-modal
+limit) -> payment method select (if more than one is enabled) -> order
+created (stock reserved if manual stock) -> order summary + payment
+instructions delivered straight to their DM.
 
 If the customer has DMs disabled for the server, they get a clear ephemeral
 error telling them to enable "Allow direct messages from server members" and
@@ -169,9 +201,9 @@ approve|reject|hide|delete`) are still there as a backup/moderation path.
 
 ## Commands
 
-**Admin:** `/category`, `/product` (incl. `/product field ...`), `/variant`,
-`/payment`, `/ticket panel|open|close|reopen`, `/order`, `/review admin
-approve|reject|hide|delete`, `/settings`
+**Admin:** `/category`, `/category_type` (incl. `/category_type field ...`),
+`/product`, `/payment`, `/ticket panel|open|close|reopen`, `/order` (incl.
+`/order message`), `/review admin approve|reject|hide|delete`, `/settings`
 
 **User:** `/shop`, `/buy`, `/orders`, `/ticket open|close`, `/review
 submit|edit|delete|list`
@@ -198,11 +230,13 @@ submit|edit|delete|list`
    Discord at all -- a fast way to verify the codebase imports and wires up
    correctly after you make changes.
 6. In Discord, run `/settings staff_role` and `/settings order_log_channel`
-   to finish the core configuration, then `/category create` and `/product
-   create` to start building your catalogue (`/category create` takes an
-   optional `emoji` parameter -- a real emoji, custom server emoji included
-   -- shown next to the category in `/shop`'s category dropdown). Finally,
-   post the panels customers will actually use:
+   to finish the core configuration, then build your catalogue in order:
+   `/category create` -> `/category_type create` (under that category) ->
+   `/product create` (under that category type). All three take an optional
+   `emoji` parameter (a real emoji, custom server emoji included) shown next
+   to them while browsing in `/shop`. Add checkout fields once per category
+   type with `/category_type field add` -- every product under it shares
+   them automatically. Finally, post the panels customers will actually use:
    - `/settings shop_panel` in your store/shopping channel
    - `/ticket panel` in your support channel (only needed if you want
      general support tickets -- see "Support tickets" above)
@@ -216,6 +250,14 @@ submit|edit|delete|list`
    From that point on, customers only ever click buttons/selects and fill in
    modals -- ordering and leaving a review both happen by DM, without typing
    a single slash command (see "Purchase flow" and "Reviews" above).
+
+   **A new `emoji` parameter not showing up, or a custom emoji you set not
+   appearing while browsing?** Slash command *parameter* changes (like an
+   `emoji` field being added to a command) only show up in Discord's UI
+   after you've redeployed the updated code **and** Discord has finished
+   syncing -- instant if `GUILD_ID` is set to that server, up to an hour if
+   syncing globally. Redeploy, wait a bit, fully close and reopen Discord to
+   clear its local command cache, then try again.
 
 7. **Inviting the bot to additional servers:** since the catalogue/orders are
    shared (see "Multi-server design" above), you can invite the same bot to
