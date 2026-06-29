@@ -100,6 +100,17 @@ CREATE TABLE IF NOT EXISTS order_field_values (
     value     TEXT
 );
 
+-- Messages NOCTRA sent in the customer's DM during checkout for this order
+-- (order summary, payment instructions, etc.) -- tracked so they can be
+-- cleaned up automatically once the order is marked completed, instead of
+-- piling up in the customer's DM forever.
+CREATE TABLE IF NOT EXISTS order_dm_messages (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id    INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    channel_id  INTEGER NOT NULL,
+    message_id  INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS tickets (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id          INTEGER REFERENCES orders(id),
