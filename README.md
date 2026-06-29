@@ -183,12 +183,16 @@ turn the bot into a general DM chatbot.
 
 A general support ticket (opened via the `/ticket panel` button or `/ticket
 open`) is a private channel visible only to the customer, the configured
-staff role, and the bot. Closing a ticket generates an HTML transcript (dark
+staff role, and the bot. Closing a ticket (manually via the Close button, or
+automatically after inactivity) locks the channel for the customer, renames
+it with a `closed-` prefix so it's visibly done even if you haven't
+configured an archive category, and -- if `/settings archive_category` is
+set -- moves it there too, out of the active list. Reopening reverses both
+the rename and the move. Closing also generates an HTML transcript (dark
 themed) and, if `/settings log_channel` is configured, posts it there.
 Tickets auto-archive after N hours of inactivity (`/settings
-auto_archive_hours`, default 24) and can be reopened by staff. (Order
-tickets/checkout no longer use channels at all -- see "Purchase flow"
-above.)
+auto_archive_hours`, default 24). (Order tickets/checkout don't use channels
+at all -- see "Purchase flow" above.)
 
 ### Reviews -- also zero commands, delivered by DM
 
@@ -200,6 +204,12 @@ rating opens a small modal for an optional written review, and submitting it
 creates the review straight away -- no `/review submit` needed.
 `/review edit|delete|list` (and the admin `/review admin
 approve|reject|hide|delete`) are still there as a backup/moderation path.
+
+**Public reputation showcase:** set `/settings reviews_channel` to a channel
+everyone can see, and the moment staff runs `/review admin approve` on a
+review, it's automatically posted there as a clean review card (rating,
+text, verified-purchase badge) -- a running feed of social proof for the
+store, separate from the private approval workflow itself.
 
 **Staff get notified too:** every new review (and every re-submitted one
 after a customer edits it) is posted straight to the order-log channel --
