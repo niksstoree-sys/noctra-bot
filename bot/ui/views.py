@@ -43,7 +43,7 @@ from bot.database.queries import (
 )
 from bot.ui import embeds
 from bot.ui.modals import ReasonModal, ReviewTextModal, collect_dynamic_fields
-from bot.utils import order_actions, review_actions, ticket_actions
+from bot.utils import order_actions, ticket_actions
 from bot.utils.helpers import RuntimeSettings, calculate_final_price
 from bot.utils.permissions import is_staff
 from bot.utils.validators import FieldValidationError, validate_field_value
@@ -641,7 +641,6 @@ class RatingButton(discord.ui.Button):
                 ),
                 ephemeral=True,
             )
-            await review_actions.notify_staff_new_review(inter.client, review_id)
 
         await interaction.response.send_modal(ReviewTextModal(f"Rate {rating}/5 -- Write a Review", on_text))
 
@@ -717,54 +716,6 @@ class ReviewStartButton(
             "Rate Your Purchase", "Choose a rating from 1 to 5, then write an optional review."
         )
         await interaction.response.send_message(embed=embed, view=RatingPromptView(self.order_id), ephemeral=True)
-
-
-class ReviewModerationButton(
-    discord.ui.DynamicItem[discord.ui.Button],
-    template=r"noctra:review:(?P<action>approve|reject|hide):(?P<review_id>[0-9]+)",
-):
-    """Posted in the order-log channel by bot.utils.review_actions whenever
-    a new (or re-submitted) review needs staff attention -- approve/reject
-    it right there instead of having to run /review admin commands. Same
-    restart-safe trick as OrderActionButton: the review ID lives in the
-    custom_id itself."""
-
-    LABELS = {"approve": "Approve", "reject": "Reject", "hide": "Hide"}
-    STYLES = {
-        "approve": discord.ButtonStyle.success,
-        "reject": discord.ButtonStyle.danger,
-        "hide": discord.ButtonStyle.secondary,
-    }
-    STATUS_MAP = {"approve": "approved", "reject": "rejected", "hide": "hidden"}
-
-    def __init__(self, action: str, review_id: int) -> None:
-        super().__init__(
-            discord.ui.Button(
-                label=self.LABELS[action],
-                style=self.STYLES[action],
-                custom_id=f"noctra:review:{action}:{review_id}",
-            )
-        )
-        self.action = action
-        self.review_id = review_id
-
-    @classmethod
-    async def from_custom_id(cls, interaction, item, match):  # noqa: D102
-        return cls(match["action"], int(match["review_id"]))
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        if not await is_staff(interaction):
-            await interaction.response.send_message(embed=embeds.error_embed("Staff only."), ephemeral=True)
-            return
-        db = interaction.client.db  # type: ignore[attr-defined]
-        if not await reviews_q.get_review(db, self.review_id):
-            await interaction.response.send_message(embed=embeds.error_embed("Review not found."), ephemeral=True)
-            return
-        new_status = self.STATUS_MAP[self.action]
-        await reviews_q.set_review_status(db, self.review_id, new_status)
-        await interaction.response.send_message(
-            embed=embeds.success_embed(f"Review #{self.review_id} marked as **{new_status}**."), ephemeral=True
-        )
 
 
 # ============================================================================
