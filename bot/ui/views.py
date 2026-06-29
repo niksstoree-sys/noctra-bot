@@ -267,6 +267,21 @@ async def start_purchase(interaction: discord.Interaction, product_id: int) -> N
     )
 
 
+async def _delete_source_message(interaction: discord.Interaction) -> None:
+    """Deletes the DM message a button/select was attached to, once its job
+    is done -- this is what stops 'Continue Order' / 'Select a Payment
+    Method' prompts from piling up regardless of whether the order is ever
+    completed (the order summary itself is cleaned up separately, on
+    completion, via the order_dm_messages tracking instead)."""
+    message = interaction.message
+    if message is None:
+        return
+    try:
+        await message.delete()
+    except discord.HTTPException:
+        pass  # already gone, or somehow not deletable -- not worth surfacing
+
+
 class ContinueOrderButton(discord.ui.Button):
     """Gives the customer something to click in their DM so a Modal can be
     opened for checkout fields, since Discord only allows opening a Modal in
@@ -279,6 +294,7 @@ class ContinueOrderButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         await proceed_to_fields(interaction, self.product)
+        await _delete_source_message(interaction)
 
 
 class ContinueOrderView(discord.ui.View):
@@ -315,7 +331,7 @@ async def proceed_to_fields(interaction: discord.Interaction, product) -> None:
 
         if errors:
             await inter.response.send_message(
-                embed=embeds.error_embed("\n".join(errors)), ephemeral=True
+                embed=embeds.error_embed("\n".join(errors)), ephemeral=False
             )
             return
         await proceed_to_payment(inter, product, cleaned)
@@ -325,7 +341,7 @@ async def proceed_to_fields(interaction: discord.Interaction, product) -> None:
 
 async def proceed_to_payment(interaction: discord.Interaction, product, field_values: list) -> None:
     if not interaction.response.is_done():
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(ephemeral=False, thinking=True)
 
     db = interaction.client.db  # type: ignore[attr-defined]
     methods = await payments_q.list_payment_methods(db, enabled_only=True)
@@ -335,7 +351,7 @@ async def proceed_to_payment(interaction: discord.Interaction, product, field_va
             embed=embeds.error_embed(
                 "No payment methods are currently configured. Please contact staff."
             ),
-            ephemeral=True,
+            ephemeral=False,
         )
         return
 
@@ -345,7 +361,7 @@ async def proceed_to_payment(interaction: discord.Interaction, product, field_va
 
     embed = embeds.info_embed("Select a Payment Method", "Choose how you would like to pay.")
     view = PaymentSelectView(product, field_values, methods)
-    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+    await interaction.followup.send(embed=embed, view=view, ephemeral=False)
 
 
 class PaymentSelect(discord.ui.Select):
@@ -362,6 +378,7 @@ class PaymentSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction) -> None:
         method = self.method_map[self.values[0]]
         await finalize_order(interaction, self.product, self.field_values, method)
+        await _delete_source_message(interaction)
 
 
 class PaymentSelectView(discord.ui.View):
@@ -372,7 +389,7 @@ class PaymentSelectView(discord.ui.View):
 
 async def finalize_order(interaction: discord.Interaction, product, field_values: list, payment) -> None:
     if not interaction.response.is_done():
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(ephemeral=False, thinking=True)
 
     db = interaction.client.db  # type: ignore[attr-defined]
     unit_price = calculate_final_price(product["base_price"], product["discount_type"], product["discount_value"])
@@ -382,7 +399,7 @@ async def finalize_order(interaction: discord.Interaction, product, field_values
         fresh = await products_q.get_product(db, product["id"])
         if fresh["stock_quantity"] <= 0:
             await interaction.followup.send(
-                embed=embeds.error_embed("This product just went out of stock."), ephemeral=True
+                embed=embeds.error_embed("This product just went out of stock."), ephemeral=False
             )
             return
         await products_q.adjust_stock(db, product["id"], -1)
@@ -427,7 +444,7 @@ async def finalize_order(interaction: discord.Interaction, product, field_values
     sent_message = await interaction.followup.send(
         content="Your order has been created! Here are the details:",
         embeds=reply_embeds,
-        ephemeral=True,
+        ephemeral=False,
         wait=True,
     )
     if sent_message is not None:

@@ -255,8 +255,10 @@ def review_card_embed(
     brand_logo_url: str | None = None,
     verified: bool = True,
 ) -> discord.Embed:
-    color = STATUS_COLORS.get(review_row["status"], COLOR_PRIMARY)
-    embed = base_embed(product_row["name"], color=color, thumbnail_url=brand_logo_url)
+    # Always brand purple here -- this is a public branding showcase card,
+    # not a status indicator, so it shouldn't shift to green/red based on
+    # approved/rejected/hidden the way internal admin embeds do.
+    embed = base_embed(product_row["name"], color=COLOR_PRIMARY, image_url=brand_logo_url)
     embed.set_author(name=author_display, icon_url=author_avatar_url or None)
     embed.add_field(
         name="Rating", value=f"{star_rating(review_row['rating'])}  ({review_row['rating']}/5)", inline=False
