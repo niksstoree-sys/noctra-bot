@@ -68,12 +68,39 @@ async def forward_to_staff(
                 name="More attachments", value="\n".join(attachment_urls[1:]), inline=False
             )
 
+    # Deferred import: bot.ui.views imports this module at the top level
+    # (for OrderActionButton/ReplyButton), so importing it back here at
+    # module scope would be circular. By the time this function actually
+    # runs, views is already fully loaded, so this lazy import is safe.
+    from bot.ui.views import ReplyButton
+
+    view = discord.ui.View(timeout=None)
+    view.add_item(ReplyButton(order_id))
+
     try:
-        await channel.send(embed=embed)
+        await channel.send(embed=embed, view=view)
         return True
     except discord.HTTPException:
         logger.exception("Failed to forward customer message for order #%s.", order_id)
         return False
+
+
+async def _cleanup_dm_messages(bot, order_id: int) -> None:
+    """Deletes the checkout messages (order summary, payment instructions,
+    etc.) NOCTRA sent to the customer's DM for this order, so completed
+    orders don't pile up in their DM history forever. Uses channel_id +
+    message_id directly (get_partial_message) rather than holding onto the
+    original message object, since this can run days after the message was
+    sent -- long after any short-lived webhook token would matter."""
+    db = bot.db
+    tracked = await orders_q.list_dm_messages(db, order_id)
+    for row in tracked:
+        try:
+            channel = bot.get_channel(row["channel_id"]) or await bot.fetch_channel(row["channel_id"])
+            await channel.get_partial_message(row["message_id"]).delete()
+        except discord.HTTPException:
+            pass  # already deleted, DM closed, or too old -- safe to ignore
+    await orders_q.clear_dm_messages(db, order_id)
 
 
 async def mark_paid(bot, order_id: int) -> tuple[bool, str]:
@@ -103,6 +130,7 @@ async def mark_completed(bot, order_id: int) -> tuple[bool, str]:
         return False, "Order not found."
 
     await orders_q.set_order_status(db, order_id, "completed")
+    await _cleanup_dm_messages(bot, order_id)
 
     product = await products_q.get_product(db, order["product_id"])
     product_name = product["name"] if product else "your purchase"

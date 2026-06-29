@@ -41,7 +41,19 @@ async def post_review_publicly(bot, review_id: int) -> bool:
         return False
 
     author_display = "Anonymous" if review["anonymous"] else f"<@{review['user_id']}>"
-    embed = embeds.review_card_embed(review, product, author_display, verified=True)
+    author_avatar_url = None
+    if not review["anonymous"]:
+        try:
+            user = bot.get_user(review["user_id"]) or await bot.fetch_user(review["user_id"])
+            author_avatar_url = user.display_avatar.url
+        except discord.HTTPException:
+            author_avatar_url = None
+
+    brand_logo_url = await runtime.brand_logo_url()
+    embed = embeds.review_card_embed(
+        review, product, author_display, author_avatar_url=author_avatar_url,
+        brand_logo_url=brand_logo_url, verified=True,
+    )
 
     try:
         await channel.send(embed=embed)
