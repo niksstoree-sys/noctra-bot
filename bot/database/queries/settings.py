@@ -14,6 +14,7 @@ from bot.database.core import Database
 KNOWN_KEYS = (
     "staff_role_id",
     "order_log_channel_id",
+    "reviews_channel_id",
     "ticket_category_id",
     "ticket_archive_category_id",
     "ticket_log_channel_id",
