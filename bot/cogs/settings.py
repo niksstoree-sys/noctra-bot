@@ -57,6 +57,18 @@ class SettingsCog(commands.Cog):
             embed=embeds.success_embed(f"Order log channel set to {channel.mention}."), ephemeral=True
         )
 
+    @settings_group.command(
+        name="reviews_channel",
+        description="Set the public channel where approved customer reviews are posted (for store reputation).",
+    )
+    @app_commands.describe(channel="Public channel for showcasing approved reviews")
+    @staff_only()
+    async def reviews_channel(self, interaction: discord.Interaction, channel: discord.TextChannel) -> None:
+        await settings_q.set_setting(self.bot.db, "reviews_channel_id", str(channel.id))
+        await interaction.response.send_message(
+            embed=embeds.success_embed(f"Reviews channel set to {channel.mention}."), ephemeral=True
+        )
+
     @settings_group.command(name="view", description="View current settings.")
     @staff_only()
     async def view(self, interaction: discord.Interaction) -> None:
@@ -64,6 +76,7 @@ class SettingsCog(commands.Cog):
         values = {
             "staff_role_id": await runtime.staff_role_id(),
             "order_log_channel_id": await runtime.order_log_channel_id(),
+            "reviews_channel_id": await runtime.reviews_channel_id(),
             "ticket_category_id": await runtime.ticket_category_id(),
             "ticket_archive_category_id": await runtime.ticket_archive_category_id(),
             "ticket_log_channel_id": await runtime.ticket_log_channel_id(),

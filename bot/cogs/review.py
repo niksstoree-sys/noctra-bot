@@ -110,7 +110,7 @@ class ReviewCog(commands.Cog):
                 ephemeral=True,
             )
             return
-        review_id = await reviews_q.create_review(
+        await reviews_q.create_review(
             self.bot.db, order, order_row["product_id"], interaction.user.id, rating, review, anonymous
         )
         await interaction.response.send_message(
@@ -119,7 +119,6 @@ class ReviewCog(commands.Cog):
             ),
             ephemeral=True,
         )
-        await review_actions.notify_staff_new_review(self.bot, review_id)
 
     @review_group.command(name="edit", description="Edit your existing review.")
     @app_commands.describe(order="Order whose review you want to edit", rating="New rating", review="New review text", anonymous="Hide your name")
@@ -147,7 +146,6 @@ class ReviewCog(commands.Cog):
         await interaction.response.send_message(
             embed=embeds.success_embed("Review updated and resubmitted for approval."), ephemeral=True
         )
-        await review_actions.notify_staff_new_review(self.bot, existing["id"])
 
     @review_group.command(name="delete", description="Delete your review.")
     @app_commands.describe(order="Order whose review you want to delete")
@@ -189,8 +187,15 @@ class ReviewCog(commands.Cog):
     @app_commands.autocomplete(review_id=_pending_review_autocomplete)
     @staff_only()
     async def approve(self, interaction: discord.Interaction, review_id: int) -> None:
+        if not await reviews_q.get_review(self.bot.db, review_id):
+            await interaction.response.send_message(embed=embeds.error_embed("Review not found."), ephemeral=True)
+            return
         await reviews_q.set_review_status(self.bot.db, review_id, "approved")
-        await interaction.response.send_message(embed=embeds.success_embed("Review approved."), ephemeral=True)
+        posted = await review_actions.post_review_publicly(self.bot, review_id)
+        message = "Review approved."
+        if posted:
+            message += " Posted to the public reviews channel."
+        await interaction.response.send_message(embed=embeds.success_embed(message), ephemeral=True)
 
     @admin_group.command(name="reject", description="Reject a pending review.")
     @app_commands.describe(review_id="Pending review to reject")
