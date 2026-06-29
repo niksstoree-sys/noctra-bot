@@ -69,6 +69,18 @@ class SettingsCog(commands.Cog):
             embed=embeds.success_embed(f"Reviews channel set to {channel.mention}."), ephemeral=True
         )
 
+    @settings_group.command(
+        name="brand_logo",
+        description="Set the NOCTRA logo/branding image shown on review cards and other showcase embeds.",
+    )
+    @app_commands.describe(image_url="Logo image URL (PNG/JPG/WebP), e.g. your Cloudinary-hosted NOCTRA logo")
+    @staff_only()
+    async def brand_logo(self, interaction: discord.Interaction, image_url: str) -> None:
+        await settings_q.set_setting(self.bot.db, "brand_logo_url", image_url)
+        await interaction.response.send_message(
+            embed=embeds.success_embed("Brand logo set.", ).set_thumbnail(url=image_url), ephemeral=True
+        )
+
     @settings_group.command(name="view", description="View current settings.")
     @staff_only()
     async def view(self, interaction: discord.Interaction) -> None:
@@ -77,6 +89,7 @@ class SettingsCog(commands.Cog):
             "staff_role_id": await runtime.staff_role_id(),
             "order_log_channel_id": await runtime.order_log_channel_id(),
             "reviews_channel_id": await runtime.reviews_channel_id(),
+            "brand_logo_url": await runtime.brand_logo_url(),
             "ticket_category_id": await runtime.ticket_category_id(),
             "ticket_archive_category_id": await runtime.ticket_archive_category_id(),
             "ticket_log_channel_id": await runtime.ticket_log_channel_id(),
