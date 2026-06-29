@@ -54,6 +54,25 @@ async def get_field_values(db: Database, order_id: int):
     )
 
 
+async def add_dm_message(db: Database, order_id: int, channel_id: int, message_id: int) -> None:
+    """Track a checkout message sent to the customer's DM so it can be
+    cleaned up automatically once the order is marked completed."""
+    await db.execute(
+        "INSERT INTO order_dm_messages (order_id, channel_id, message_id) VALUES (?, ?, ?)",
+        (order_id, channel_id, message_id),
+    )
+
+
+async def list_dm_messages(db: Database, order_id: int):
+    return await db.fetchall(
+        "SELECT * FROM order_dm_messages WHERE order_id = ?", (order_id,)
+    )
+
+
+async def clear_dm_messages(db: Database, order_id: int) -> None:
+    await db.execute("DELETE FROM order_dm_messages WHERE order_id = ?", (order_id,))
+
+
 async def set_order_status(db: Database, order_id: int, status: str) -> None:
     await db.execute(
         "UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?",
