@@ -59,6 +59,13 @@ class RuntimeSettings:
         value = await self._get("order_log_channel_id", None)
         return int(value) if value else None
 
+    async def reviews_channel_id(self) -> int | None:
+        """Public channel where approved reviews are posted automatically
+        for everyone to see -- store reputation / social proof, not a staff
+        moderation queue."""
+        value = await self._get("reviews_channel_id", None)
+        return int(value) if value else None
+
     async def ticket_category_id(self) -> int | None:
         value = await self._get("ticket_category_id", config.ticket_category_id)
         return int(value) if value else None

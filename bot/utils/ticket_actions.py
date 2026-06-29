@@ -126,18 +126,29 @@ async def close_ticket(
         except discord.HTTPException:
             logger.exception("Failed to lock channel #%s", channel.name)
 
+    # Visibly move/rename the channel so a closed ticket doesn't just sit
+    # silently in the same place looking untouched -- this applies to BOTH
+    # a manual "Close Ticket" click and the inactivity auto-archive task,
+    # not just the latter.
     archive_category_id = await runtime.ticket_archive_category_id()
-    if auto and archive_category_id:
+    if archive_category_id:
         archive_category = channel.guild.get_channel(archive_category_id)
         if isinstance(archive_category, discord.CategoryChannel):
             try:
                 await channel.edit(category=archive_category)
             except discord.HTTPException:
-                pass
+                logger.exception("Failed to move #%s to the archive category.", channel.name)
+
+    if not channel.name.startswith("closed-"):
+        try:
+            await channel.edit(name=f"closed-{channel.name}"[:100])
+        except discord.HTTPException:
+            logger.exception("Failed to rename #%s on close.", channel.name)
 
 
 async def reopen_ticket(bot, channel: discord.TextChannel, reopened_by_display: str) -> None:
     db = bot.db
+    runtime = RuntimeSettings(db)
     ticket = await tickets_q.get_ticket_by_channel(db, channel.id)
     if not ticket:
         return
@@ -150,6 +161,24 @@ async def reopen_ticket(bot, channel: discord.TextChannel, reopened_by_display: 
             )
         except discord.HTTPException:
             pass
+
+    # Undo the visible close marker: drop the "closed-" prefix and move back
+    # to the regular ticket category if one is configured.
+    if channel.name.startswith("closed-"):
+        try:
+            await channel.edit(name=channel.name.removeprefix("closed-")[:100])
+        except discord.HTTPException:
+            logger.exception("Failed to rename #%s on reopen.", channel.name)
+
+    ticket_category_id = await runtime.ticket_category_id()
+    if ticket_category_id:
+        ticket_category = channel.guild.get_channel(ticket_category_id)
+        if isinstance(ticket_category, discord.CategoryChannel):
+            try:
+                await channel.edit(category=ticket_category)
+            except discord.HTTPException:
+                pass
+
     await channel.send(
         embed=embeds.info_embed("Ticket Reopened", f"Reopened by **{reopened_by_display}**.")
     )
