@@ -241,15 +241,30 @@ def ticket_closed_embed(close_reason: str | None, closed_by: str) -> discord.Emb
 
 # -- Reviews ---------------------------------------------------------------------
 
-def review_card_embed(review_row, product_row, author_display: str, verified: bool = True) -> discord.Embed:
+def star_rating(rating: int, scale: int = 5) -> str:
+    """A 5-star emoji row, e.g. 4/5 -> 'star star star star outline-star'."""
+    rating = max(0, min(scale, rating))
+    return "\u2b50" * rating + "\u2606" * (scale - rating)
+
+
+def review_card_embed(
+    review_row,
+    product_row,
+    author_display: str,
+    author_avatar_url: str | None = None,
+    brand_logo_url: str | None = None,
+    verified: bool = True,
+) -> discord.Embed:
     color = STATUS_COLORS.get(review_row["status"], COLOR_PRIMARY)
-    bar = rating_bar(review_row["rating"])
-    embed = base_embed(f"Review -- {product_row['name']}", color=color)
-    embed.add_field(name="Rating", value=f"{review_row['rating']}/5  {bar}", inline=False)
+    embed = base_embed(product_row["name"], color=color, thumbnail_url=brand_logo_url)
+    embed.set_author(name=author_display, icon_url=author_avatar_url or None)
+    embed.add_field(
+        name="Rating", value=f"{star_rating(review_row['rating'])}  ({review_row['rating']}/5)", inline=False
+    )
     if review_row["review_text"]:
         embed.add_field(name="Review", value=review_row["review_text"], inline=False)
     badge = "Verified Purchase" if verified else "Unverified"
-    embed.add_field(name="Author", value=f"{author_display} {MARK_DASH} {badge}", inline=True)
+    embed.add_field(name="Purchase", value=badge, inline=True)
     embed.add_field(name="Status", value=review_row["status"].title(), inline=True)
     return embed
 

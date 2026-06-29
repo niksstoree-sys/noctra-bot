@@ -146,3 +146,28 @@ class ReasonModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         await self._on_submit_callback(interaction, str(self.reason.value or "").strip())
+
+
+class MessageModal(discord.ui.Modal):
+    """Reusable single required-field modal -- used for the order-log
+    'Reply' button so staff can message a customer by DM without ever
+    typing /order message."""
+
+    message = discord.ui.TextInput(
+        label="Message to customer",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=1000,
+        placeholder="Type your reply here...",
+    )
+
+    def __init__(
+        self,
+        title: str,
+        on_submit_callback: Callable[[discord.Interaction, str], Awaitable[None]],
+    ) -> None:
+        super().__init__(title=title[:45])
+        self._on_submit_callback = on_submit_callback
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await self._on_submit_callback(interaction, str(self.message.value).strip())

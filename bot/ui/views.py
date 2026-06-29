@@ -42,7 +42,7 @@ from bot.database.queries import (
     tickets as tickets_q,
 )
 from bot.ui import embeds
-from bot.ui.modals import ReasonModal, ReviewTextModal, collect_dynamic_fields
+from bot.ui.modals import MessageModal, ReasonModal, ReviewTextModal, collect_dynamic_fields
 from bot.utils import order_actions, ticket_actions
 from bot.utils.helpers import RuntimeSettings, calculate_final_price
 from bot.utils.permissions import is_staff
@@ -424,11 +424,14 @@ async def finalize_order(interaction: discord.Interaction, product, field_values
         )
     )
 
-    await interaction.followup.send(
+    sent_message = await interaction.followup.send(
         content="Your order has been created! Here are the details:",
         embeds=reply_embeds,
         ephemeral=True,
+        wait=True,
     )
+    if sent_message is not None:
+        await orders_q.add_dm_message(db, order_id, sent_message.channel.id, sent_message.id)
 
     # Let staff know via the order-log channel, if one is configured. This
     # works across every server the bot is in, since the channel is a fixed
@@ -444,6 +447,7 @@ async def finalize_order(interaction: discord.Interaction, product, field_values
             staff_view = discord.ui.View(timeout=None)
             for action in ("mark_paid", "mark_completed", "cancel", "refund"):
                 staff_view.add_item(OrderActionButton(action, order_id))
+            staff_view.add_item(ReplyButton(order_id))
             try:
                 await log_channel.send(embed=staff_embed, view=staff_view)
             except discord.HTTPException:
@@ -572,6 +576,54 @@ class OrderActionButton(
 
         title = "Cancel Order" if action == "cancel" else "Refund Order"
         await interaction.response.send_modal(ReasonModal(title, on_reason))
+
+
+class ReplyButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"noctra:order:reply:(?P<order_id>[0-9]+)",
+):
+    """Lets staff message a customer by DM in one tap -- opens a modal to
+    type the reply right there in the order-log channel or next to a
+    forwarded payment-proof message, instead of typing /order message every
+    time. Same restart-safe custom_id trick as OrderActionButton."""
+
+    def __init__(self, order_id: int) -> None:
+        super().__init__(
+            discord.ui.Button(
+                label="Reply",
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"noctra:order:reply:{order_id}",
+            )
+        )
+        self.order_id = order_id
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):  # noqa: D102
+        return cls(int(match["order_id"]))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not await is_staff(interaction):
+            await interaction.response.send_message(embed=embeds.error_embed("Staff only."), ephemeral=True)
+            return
+
+        order_id = self.order_id
+
+        async def on_message(inter: discord.Interaction, text: str) -> None:
+            db = inter.client.db  # type: ignore[attr-defined]
+            order = await orders_q.get_order(db, order_id)
+            if not order:
+                await inter.response.send_message(embed=embeds.error_embed("Order not found."), ephemeral=True)
+                return
+            embed = embeds.info_embed(f"Message about Order #{order_id}", text)
+            sent = await order_actions.send_message_to_customer(inter.client, order["user_id"], embed)
+            await inter.response.send_message(
+                embed=embeds.success_embed("Message sent.")
+                if sent
+                else embeds.error_embed("Couldn't DM the customer -- they may have DMs disabled."),
+                ephemeral=True,
+            )
+
+        await interaction.response.send_modal(MessageModal(f"Reply -- Order #{order_id}", on_message))
 
 
 # ============================================================================
