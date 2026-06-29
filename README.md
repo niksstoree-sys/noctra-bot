@@ -157,12 +157,12 @@ already knows the product name and wants a shortcut) -- they reuse the exact
 same browsing/purchase code as the buttons, so both paths stay in sync.
 
 **Staff side:** if you set `/settings order_log_channel`, every new order is
-posted there with Mark Paid / Mark Completed / Cancel / Refund buttons
-(these keep working after a bot restart -- the order ID is encoded directly
-in the button, no per-message bookkeeping needed). Without that channel
-configured, staff can manage everything just as well via `/order view|list|
-status|payment_status`. Either path notifies the customer by DM and -- on
-Mark Completed -- triggers the review prompt automatically.
+posted there with Mark Paid / Mark Completed / Cancel / Refund / **Reply**
+buttons (these keep working after a bot restart -- the order ID is encoded
+directly in the button, no per-message bookkeeping needed). Without that
+channel configured, staff can manage everything just as well via `/order
+view|list|status|payment_status`. Either path notifies the customer by DM
+and -- on Mark Completed -- triggers the review prompt automatically.
 
 **Payment proof, without a ticket channel:** the order confirmation DM tells
 the customer to send their payment proof (screenshot, transfer reference,
@@ -207,17 +207,27 @@ approve|reject|hide|delete`) are still there as a backup/moderation path.
 
 **Public reputation showcase:** set `/settings reviews_channel` to a channel
 everyone can see, and the moment staff runs `/review admin approve` on a
-review, it's automatically posted there as a clean review card (rating,
-text, verified-purchase badge) -- a running feed of social proof for the
-store, separate from the private approval workflow itself.
+review, it's automatically posted there as a polished review card --
+reviewer's avatar + name (via Discord's embed author slot, skipped entirely
+for anonymous reviews so that choice is actually respected), a 5-star emoji
+rating, the written review, a Verified Purchase badge, and your own brand
+logo as the thumbnail (set once with `/settings brand_logo`) -- a running
+feed of social proof for the store, separate from the private approval
+workflow itself.
 
-**Staff get notified too:** every new review (and every re-submitted one
-after a customer edits it) is posted straight to the order-log channel --
-the same one configured with `/settings order_log_channel` -- with
-Approve/Reject/Hide buttons right there, so staff don't have to remember to
-go check. No order-log channel configured yet? The review still saves fine,
-staff just won't get a push notification for it; `/review admin approve`
-works as the manual fallback either way.
+**Keeping the customer's DM tidy:** the checkout messages NOCTRA sends
+(order summary, payment instructions) are tracked per order, and the moment
+that order is marked **Completed**, they're deleted from the customer's DM
+automatically -- so a long order history doesn't just pile up forever. The
+fresh "order complete" + review-prompt messages are sent right after, so the
+customer still gets clear confirmation, just without the old checkout
+clutter sitting above it.
+
+**Replying to a customer without typing a command:** every order-log post
+(and every forwarded payment-proof message) has a **Reply** button. Tapping
+it opens a small modal to type a message, which goes straight to the
+customer's DM -- `/order message` still exists as a fallback, but day to day
+staff never need to type it.
 
 ## Commands
 
@@ -250,13 +260,16 @@ submit|edit|delete|list`
    Discord at all -- a fast way to verify the codebase imports and wires up
    correctly after you make changes.
 6. In Discord, run `/settings staff_role` and `/settings order_log_channel`
-   to finish the core configuration, then build your catalogue in order:
-   `/category create` -> `/category_type create` (under that category) ->
-   `/product create` (under that category type). All three take an optional
-   `emoji` parameter (a real emoji, custom server emoji included) shown next
-   to them while browsing in `/shop`. Add checkout fields once per category
-   type with `/category_type field add` -- every product under it shares
-   them automatically. Finally, post the panels customers will actually use:
+   to finish the core configuration. Optionally also run `/settings
+   reviews_channel` (a public channel for the review showcase) and
+   `/settings brand_logo` (your NOCTRA logo URL, shown on those review
+   cards). Then build your catalogue in order: `/category create` ->
+   `/category_type create` (under that category) -> `/product create`
+   (under that category type). All three take an optional `emoji` parameter
+   (a real emoji, custom server emoji included) shown next to them while
+   browsing in `/shop`. Add checkout fields once per category type with
+   `/category_type field add` -- every product under it shares them
+   automatically. Finally, post the panels customers will actually use:
    - `/settings shop_panel` in your store/shopping channel
    - `/ticket panel` in your support channel (only needed if you want
      general support tickets -- see "Support tickets" above)
