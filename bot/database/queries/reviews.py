@@ -6,6 +6,12 @@ from bot.database.core import Database
 
 REVIEW_STATUSES = ("pending", "approved", "rejected", "hidden")
 
+# How long a customer has to send a photo after rating before the prompt
+# expires on its own (a periodic background sweep handles this -- see
+# bot.cogs.tasks -- so it isn't dependent on the bot staying up the whole
+# time, unlike the View's own button timeout).
+PHOTO_WINDOW_MINUTES = 10
+
 
 async def create_review(
     db: Database,
@@ -15,18 +21,19 @@ async def create_review(
     rating: int,
     review_text: str | None,
     anonymous: bool,
+    image_url: str | None = None,
 ) -> int:
     return await db.execute(
         """
-        INSERT INTO reviews (order_id, product_id, user_id, rating, review_text, anonymous)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO reviews (order_id, product_id, user_id, rating, review_text, anonymous, image_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (order_id, product_id, user_id, rating, review_text, int(anonymous)),
+        (order_id, product_id, user_id, rating, review_text, int(anonymous), image_url),
     )
 
 
 async def update_review(db: Database, review_id: int, **fields) -> None:
-    allowed = {"rating", "review_text", "anonymous", "status"}
+    allowed = {"rating", "review_text", "anonymous", "status", "image_url"}
     sets, params = [], []
     for key, value in fields.items():
         if key not in allowed:
@@ -48,6 +55,44 @@ async def set_review_status(db: Database, review_id: int, status: str) -> None:
     await db.execute(
         "UPDATE reviews SET status = ?, updated_at = datetime('now') WHERE id = ?",
         (status, review_id),
+    )
+
+
+async def set_awaiting_photo(db: Database, review_id: int, awaiting: bool) -> None:
+    if awaiting:
+        await db.execute(
+            "UPDATE reviews SET awaiting_photo = 1, awaiting_photo_since = datetime('now') WHERE id = ?",
+            (review_id,),
+        )
+    else:
+        await db.execute(
+            "UPDATE reviews SET awaiting_photo = 0, awaiting_photo_since = NULL WHERE id = ?",
+            (review_id,),
+        )
+
+
+async def get_awaiting_photo_review_for_user(db: Database, user_id: int):
+    """The review (if any) this user is currently expected to send a photo
+    for -- used by the DM listener to know an incoming attachment is meant
+    to be attached to a review rather than anything else."""
+    return await db.fetchone(
+        "SELECT * FROM reviews WHERE user_id = ? AND awaiting_photo = 1 ORDER BY created_at DESC LIMIT 1",
+        (user_id,),
+    )
+
+
+async def list_stale_awaiting_photo_reviews(db: Database, minutes: int = PHOTO_WINDOW_MINUTES):
+    """Reviews still waiting on a photo past the allowed window -- a
+    periodic sweep (bot.cogs.tasks) clears these so the flag can't get
+    stuck forever if the customer never replies or the bot restarts mid-wait."""
+    return await db.fetchall(
+        """
+        SELECT * FROM reviews
+        WHERE awaiting_photo = 1
+          AND awaiting_photo_since IS NOT NULL
+          AND awaiting_photo_since <= datetime('now', ?)
+        """,
+        (f"-{minutes} minutes",),
     )
 
 

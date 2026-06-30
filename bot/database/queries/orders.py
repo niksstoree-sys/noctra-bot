@@ -112,14 +112,17 @@ async def list_orders_for_user(db: Database, user_id: int, limit: int = 25):
     )
 
 
-async def list_pending_payment_orders_for_user(db: Database, user_id: int):
-    """Orders still awaiting payment confirmation for this user -- used to
-    figure out which order a DM (e.g. a payment proof screenshot) belongs to."""
+async def list_active_orders_for_user(db: Database, user_id: int):
+    """Orders this user can still message staff about -- the DM relay
+    window stays open from order creation all the way until the order is
+    completed (or cancelled/refunded), NOT just until payment is confirmed.
+    A customer should still be able to ask staff something after their
+    order is marked paid and is being processed, not just before."""
     return await db.fetchall(
         """
         SELECT * FROM orders
-        WHERE user_id = ? AND payment_status = 'pending'
-          AND status NOT IN ('cancelled', 'refunded')
+        WHERE user_id = ?
+          AND status NOT IN ('completed', 'cancelled', 'refunded')
         ORDER BY created_at DESC
         """,
         (user_id,),
