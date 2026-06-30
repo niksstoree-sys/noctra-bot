@@ -14,6 +14,7 @@ import discord
 
 from bot.core.logger import logger
 from bot.database.queries import orders as orders_q
+from bot.database.queries import payments as payments_q
 from bot.database.queries import products as products_q
 from bot.database.queries import reviews as reviews_q
 from bot.ui import embeds
@@ -21,23 +22,40 @@ from bot.utils.helpers import RuntimeSettings
 
 
 async def _notify_customer(
-    bot, user_id: int, embed: discord.Embed, view: discord.ui.View | None = None
+    bot,
+    user_id: int,
+    embed: discord.Embed,
+    view: discord.ui.View | None = None,
+    *,
+    order_id: int | None = None,
+    track: bool = False,
 ) -> bool:
+    """Sends a DM to the customer. When `track` is True (and `order_id` is
+    given), the sent message is recorded in order_dm_messages so it can be
+    deleted later -- used for transient working messages (status
+    notifications, the review prompt, staff replies) as opposed to the
+    final invoice, which is meant to stay permanently."""
     try:
         user = bot.get_user(user_id) or await bot.fetch_user(user_id)
         if view is not None:
-            await user.send(embed=embed, view=view)
+            sent = await user.send(embed=embed, view=view)
         else:
-            await user.send(embed=embed)
+            sent = await user.send(embed=embed)
+        if track and order_id is not None:
+            await orders_q.add_dm_message(bot.db, order_id, sent.channel.id, sent.id)
         return True
     except discord.HTTPException:
         logger.warning("Could not DM user %s -- they may have DMs disabled.", user_id)
         return False
 
 
-async def send_message_to_customer(bot, user_id: int, embed: discord.Embed) -> bool:
-    """Public wrapper for staff -> customer DMs (used by /order message)."""
-    return await _notify_customer(bot, user_id, embed)
+async def send_message_to_customer(
+    bot, user_id: int, embed: discord.Embed, order_id: int | None = None
+) -> bool:
+    """Public wrapper for staff -> customer DMs (used by /order message and
+    the order-log Reply button). Tracked for cleanup when `order_id` is
+    given, same as the rest of the working checkout messages."""
+    return await _notify_customer(bot, user_id, embed, order_id=order_id, track=True)
 
 
 async def forward_to_staff(
@@ -85,7 +103,7 @@ async def forward_to_staff(
         return False
 
 
-async def _cleanup_dm_messages(bot, order_id: int) -> None:
+async def cleanup_dm_messages(bot, order_id: int) -> None:
     """Deletes the checkout messages (order summary, payment instructions,
     etc.) NOCTRA sent to the customer's DM for this order, so completed
     orders don't pile up in their DM history forever. Uses channel_id +
@@ -119,6 +137,8 @@ async def mark_paid(bot, order_id: int) -> tuple[bool, str]:
         embeds.success_embed(
             f"Your order #{order_id} has been marked as **paid** and is now being processed."
         ),
+        order_id=order_id,
+        track=True,
     )
     return True, f"Order #{order_id} marked as paid."
 
@@ -130,18 +150,33 @@ async def mark_completed(bot, order_id: int) -> tuple[bool, str]:
         return False, "Order not found."
 
     await orders_q.set_order_status(db, order_id, "completed")
-    await _cleanup_dm_messages(bot, order_id)
+    if order["payment_status"] != "paid":
+        # Completing an order implies it was paid -- without this, staff
+        # clicking "Mark Completed" without first clicking "Mark Paid"
+        # leaves payment_status stuck on "pending" forever, which silently
+        # blocks the customer's review button (it requires both to be set).
+        await orders_q.set_payment_status(db, order_id, "paid")
+
+    # Clear out every transient working message for this order (checkout
+    # flow, the "marked paid" notification, any staff replies sent so far)
+    # before sending the permanent invoice -- so the invoice is the clean
+    # start of what's left in the customer's DM, not buried under clutter.
+    await cleanup_dm_messages(bot, order_id)
 
     product = await products_q.get_product(db, order["product_id"])
     product_name = product["name"] if product else "your purchase"
-
-    await _notify_customer(
-        bot,
-        order["user_id"],
-        embeds.success_embed(
-            f"Your order #{order_id} for **{product_name}** is complete! Thank you for your purchase."
-        ),
+    payment = (
+        await payments_q.get_payment_method(db, order["payment_method_id"])
+        if order["payment_method_id"]
+        else None
     )
+
+    runtime = RuntimeSettings(db)
+    brand_logo_url = await runtime.brand_logo_url()
+    invoice_embed = embeds.order_invoice_embed(order, product, payment, brand_logo_url=brand_logo_url)
+    # Not tracked -- the invoice is meant to stay as the customer's
+    # permanent proof of purchase, unlike everything else in this flow.
+    await _notify_customer(bot, order["user_id"], invoice_embed)
 
     existing_review = await reviews_q.get_review_by_order(db, order_id)
     if not existing_review:
@@ -158,7 +193,10 @@ async def mark_completed(bot, order_id: int) -> tuple[bool, str]:
             f"Let others know what you thought of **{product_name}**. "
             "Click below to leave a rating -- no commands needed.",
         )
-        await _notify_customer(bot, order["user_id"], review_embed, review_view)
+        # Tracked: once the customer actually submits a review, this prompt
+        # (and the button on it) gets cleaned up automatically -- see
+        # RatingButton in bot.ui.views.
+        await _notify_customer(bot, order["user_id"], review_embed, review_view, order_id=order_id, track=True)
 
     return True, f"Order #{order_id} marked as completed."
 

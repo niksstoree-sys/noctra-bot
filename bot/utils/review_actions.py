@@ -40,13 +40,20 @@ async def post_review_publicly(bot, review_id: int) -> bool:
     if not product:
         return False
 
-    author_display = "Anonymous" if review["anonymous"] else f"<@{review['user_id']}>"
+    author_display = "Anonymous"
     author_avatar_url = None
     if not review["anonymous"]:
         try:
             user = bot.get_user(review["user_id"]) or await bot.fetch_user(review["user_id"])
+            # embed.set_author(name=...) renders plain text only -- unlike a
+            # normal message or an embed field/description, it does NOT
+            # resolve @mention syntax into a clickable name, so a literal
+            # "<@123...>" string shows up as-is. The actual display name has
+            # to be fetched and used directly instead.
+            author_display = user.display_name
             author_avatar_url = user.display_avatar.url
         except discord.HTTPException:
+            author_display = f"User {review['user_id']}"
             author_avatar_url = None
 
     brand_logo_url = await runtime.brand_logo_url()
