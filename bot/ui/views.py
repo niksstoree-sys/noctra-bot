@@ -632,7 +632,7 @@ class ReplyButton(
                 await inter.response.send_message(embed=embeds.error_embed("Order not found."), ephemeral=True)
                 return
             embed = embeds.info_embed(f"Message about Order #{order_id}", text)
-            sent = await order_actions.send_message_to_customer(inter.client, order["user_id"], embed)
+            sent = await order_actions.send_message_to_customer(inter.client, order["user_id"], embed, order_id)
             await inter.response.send_message(
                 embed=embeds.success_embed("Message sent.")
                 if sent
@@ -710,6 +710,10 @@ class RatingButton(discord.ui.Button):
                 ),
                 ephemeral=True,
             )
+            # The review prompt button (and any staff reply messages sent in
+            # the meantime) have done their job now -- clear them out so the
+            # invoice from order completion is the cleanest thing left.
+            await order_actions.cleanup_dm_messages(inter.client, order_id)
 
         await interaction.response.send_modal(ReviewTextModal(f"Rate {rating}/5 -- Write a Review", on_text))
 

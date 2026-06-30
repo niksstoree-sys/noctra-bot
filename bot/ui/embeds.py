@@ -222,6 +222,39 @@ def order_summary_embed(
     return embed
 
 
+def order_invoice_embed(
+    order_row,
+    product_row,
+    payment_row,
+    brand_logo_url: str | None = None,
+) -> discord.Embed:
+    """A clean, permanent receipt sent the moment an order is marked
+    completed -- distinct from order_summary_embed (which is a working
+    checkout-in-progress card that gets cleaned up later). This one is meant
+    to stay in the customer's DM as their proof of purchase."""
+    invoice_number = f"NOCTRA-{order_row['id']:06d}"
+    completed_ts = int(datetime.utcnow().timestamp())
+
+    embed = base_embed(
+        f"{MARK_DIAMOND} Invoice {invoice_number}",
+        "Thank you for your purchase -- here's your receipt.",
+        color=COLOR_SUCCESS,
+        thumbnail_url=brand_logo_url,
+    )
+    embed.add_field(name="Item", value=product_row["name"], inline=False)
+    embed.add_field(
+        name="Amount Paid",
+        value=f"**{format_price(order_row['total_price'], order_row['currency_label'])}**",
+        inline=True,
+    )
+    if payment_row:
+        embed.add_field(name="Payment Method", value=payment_row["name"], inline=True)
+    embed.add_field(name="Order ID", value=f"#{order_row['id']}", inline=True)
+    embed.add_field(name="Completed", value=f"<t:{completed_ts}:f>", inline=True)
+    embed.set_footer(text=f"{FOOTER_TEXT}  {MARK_DASH}  Keep this for your records")
+    return embed
+
+
 def ticket_welcome_embed(order_summary_text: str | None = None) -> discord.Embed:
     description = (
         "Thank you for opening a ticket. Our staff will assist you shortly.\n\n"
