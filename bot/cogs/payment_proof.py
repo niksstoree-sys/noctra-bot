@@ -1,19 +1,24 @@
 """
-Relays a customer's DMs to staff while they have an order awaiting payment
-confirmation -- this is what makes "send your payment proof here" actually
-reach the people who need to see it, without ever opening a ticket channel.
+Relays a customer's DMs to staff for as long as they have an active order
+(from creation all the way through being marked paid and processed, right
+up until it's completed) -- this is what makes "send your payment proof
+here" actually reach the people who need to see it, without ever opening a
+ticket channel, and lets the customer keep messaging staff about an order
+even after it's been marked paid.
 
 Behaviour:
   * Only DM channels are watched (guild messages are untouched).
-  * If the customer has exactly one order with payment_status='pending',
-    the message (text + any attachments) is forwarded straight to the
-    order-log channel, tagged with that order ID and the customer's mention.
+  * If the customer has exactly one active order, the message (text + any
+    attachments) is forwarded straight to the order-log channel, tagged
+    with that order ID and the customer's mention.
   * If they have more than one, they're asked to pick which order via a
     Select menu before anything is forwarded -- this is the actual fix for
     "yang beneran beli yang mana": every forwarded message is unambiguously
     tied to one specific order.
-  * If they have zero pending orders, the bot stays silent (it isn't a
-    general-purpose DM chatbot).
+  * If they have zero active orders (none yet, or already completed), the
+    bot stays silent here (it isn't a general-purpose DM chatbot). A
+    completed order's "how was it" conversation is handled separately by
+    the review-photo listener, not this one.
   * A visible confirmation is only sent back when there's an attachment
     (the proof-of-payment case) to avoid replying to every single message
     in an ordinary back-and-forth.
@@ -40,25 +45,25 @@ class PaymentProofCog(commands.Cog):
             return  # only relay DMs from real users
 
         db = self.bot.db
-        pending = await orders_q.list_pending_payment_orders_for_user(db, message.author.id)
-        if not pending:
+        active = await orders_q.list_active_orders_for_user(db, message.author.id)
+        if not active:
             return
 
         attachment_urls = [a.url for a in message.attachments]
 
-        if len(pending) > 1:
+        if len(active) > 1:
             embed = embeds.info_embed(
                 "Which order is this about?",
-                "You have more than one order awaiting payment confirmation -- "
-                "pick the right one so staff know exactly which order this is for.",
+                "You have more than one active order -- pick the right one "
+                "so staff know exactly which order this is for.",
             )
             await message.channel.send(
                 embed=embed,
-                view=PendingOrderSelectView(pending, message.content, attachment_urls),
+                view=PendingOrderSelectView(active, message.content, attachment_urls),
             )
             return
 
-        order = pending[0]
+        order = active[0]
         sent = await order_actions.forward_to_staff(
             self.bot, order["id"], message.author, message.content, attachment_urls
         )

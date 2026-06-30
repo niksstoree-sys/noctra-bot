@@ -2,6 +2,8 @@
 Background loops:
   * Expire orders whose payment deadline has passed.
   * Auto-archive tickets that have been inactive past the configured window.
+  * Clear stale awaiting-photo review flags (customer never sent a photo
+    and didn't tap Skip -- cleaned up after PHOTO_WINDOW_MINUTES).
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from discord.ext import commands, tasks
 from bot.core.logger import logger
 from bot.database.queries import orders as orders_q
 from bot.database.queries import products as products_q
+from bot.database.queries import reviews as reviews_q
 from bot.database.queries import tickets as tickets_q
 from bot.ui import embeds
 from bot.utils import ticket_actions
@@ -23,10 +26,12 @@ class TasksCog(commands.Cog):
         self.bot = bot
         self.expire_payments.start()
         self.auto_archive_tickets.start()
+        self.clear_stale_photo_windows.start()
 
     def cog_unload(self) -> None:
         self.expire_payments.cancel()
         self.auto_archive_tickets.cancel()
+        self.clear_stale_photo_windows.cancel()
 
     @tasks.loop(minutes=2)
     async def expire_payments(self) -> None:
@@ -68,8 +73,23 @@ class TasksCog(commands.Cog):
         except Exception:  # noqa: BLE001
             logger.exception("Error in auto_archive_tickets task.")
 
+    @tasks.loop(minutes=5)
+    async def clear_stale_photo_windows(self) -> None:
+        """Drop awaiting_photo flag on reviews whose 10-minute photo window
+        has passed -- stops the flag from getting permanently stuck if the
+        customer never replied or the bot restarted mid-wait."""
+        try:
+            db = self.bot.db
+            stale = await reviews_q.list_stale_awaiting_photo_reviews(db)
+            for review in stale:
+                await reviews_q.set_awaiting_photo(db, review["id"], False)
+                logger.debug("Cleared stale photo window for review #%s.", review["id"])
+        except Exception:  # noqa: BLE001
+            logger.exception("Error in clear_stale_photo_windows task.")
+
     @expire_payments.before_loop
     @auto_archive_tickets.before_loop
+    @clear_stale_photo_windows.before_loop
     async def _before(self) -> None:
         await self.bot.wait_until_ready()
 
