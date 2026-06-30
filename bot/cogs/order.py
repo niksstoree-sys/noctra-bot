@@ -130,7 +130,7 @@ class OrderCog(commands.Cog):
 
         await interaction.response.defer(ephemeral=True)
         embed = embeds.info_embed(f"Message about Order #{order}", message)
-        sent = await order_actions.send_message_to_customer(self.bot, existing["user_id"], embed)
+        sent = await order_actions.send_message_to_customer(self.bot, existing["user_id"], embed, order)
         await interaction.followup.send(
             embed=embeds.success_embed("Message sent.")
             if sent
