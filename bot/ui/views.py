@@ -701,21 +701,62 @@ class RatingButton(discord.ui.Button):
                     embed=embeds.error_embed("You've already reviewed this order."), ephemeral=True
                 )
                 return
+
             review_id = await reviews_q.create_review(
                 db, order_id, order["product_id"], inter.user.id, rating, text or None, anonymous
             )
-            await inter.response.send_message(
-                embed=embeds.success_embed(
-                    "Thanks! Your review has been submitted and is awaiting staff approval."
-                ),
-                ephemeral=True,
-            )
-            # The review prompt button (and any staff reply messages sent in
-            # the meantime) have done their job now -- clear them out so the
-            # invoice from order completion is the cleanest thing left.
+
+            # The original "How was your purchase?" prompt has done its job
+            # now -- clear it (and any stray staff reply messages) before
+            # asking about a photo, so that doesn't sit there stale too.
             await order_actions.cleanup_dm_messages(inter.client, order_id)
 
+            # Discord Modals only support text fields -- there is no way to
+            # receive a file upload through one. So instead of cramming a
+            # URL field in there, the rating+text modal stays text-only and
+            # photo attachment becomes its own short follow-up step: ask the
+            # customer to just send the image as a normal DM message.
+            await reviews_q.set_awaiting_photo(db, review_id, True)
+            prompt_embed = embeds.info_embed(
+                "Add a Photo? (Optional)",
+                "Got a screenshot to go with your review? Just send it here as a "
+                "regular message -- no links needed. Or tap Skip to finish "
+                "without one.",
+            )
+            await inter.response.send_message(
+                embed=prompt_embed, view=PhotoPromptView(review_id), ephemeral=False
+            )
+            sent = await inter.original_response()
+            await orders_q.add_dm_message(db, order_id, sent.channel.id, sent.id)
+
         await interaction.response.send_modal(ReviewTextModal(f"Rate {rating}/5 -- Write a Review", on_text))
+
+
+class SkipPhotoButton(discord.ui.Button):
+    def __init__(self, review_id: int) -> None:
+        super().__init__(label="Skip", style=discord.ButtonStyle.secondary)
+        self.review_id = review_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        db = interaction.client.db  # type: ignore[attr-defined]
+        review = await reviews_q.get_review(db, self.review_id)
+        if not review or review["user_id"] != interaction.user.id:
+            await interaction.response.send_message(
+                embed=embeds.error_embed("This prompt isn't for you."), ephemeral=True
+            )
+            return
+        await reviews_q.set_awaiting_photo(db, self.review_id, False)
+        await interaction.response.send_message(
+            embed=embeds.success_embed("No problem -- your review is in without a photo."), ephemeral=True
+        )
+        await order_actions.cleanup_dm_messages(interaction.client, review["order_id"])
+
+
+class PhotoPromptView(discord.ui.View):
+    def __init__(self, review_id: int) -> None:
+        super().__init__(timeout=600)
+        self.review_id = review_id
+        self.add_item(SkipPhotoButton(review_id))
 
 
 class AnonymousToggleButton(discord.ui.Button):

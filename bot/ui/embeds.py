@@ -288,13 +288,19 @@ def review_card_embed(
     brand_logo_url: str | None = None,
     verified: bool = True,
 ) -> discord.Embed:
+    # The bottom banner slot is shared: a customer-submitted review photo
+    # takes priority when there is one, falling back to the brand logo
+    # otherwise -- never both stacked, so the card stays flexible instead of
+    # cluttered either way.
+    banner_url = review_row["image_url"] or brand_logo_url
+
     # Always brand purple here -- this is a public branding showcase card,
     # not a status indicator, so it shouldn't shift to green/red based on
     # approved/rejected/hidden the way internal admin embeds do.
     embed = base_embed(
         product_row["name"],
         color=COLOR_PRIMARY,
-        image_url=brand_logo_url,
+        image_url=banner_url,
         # The author icon alone is tiny (just a small circle next to the
         # name) -- setting the same avatar as the thumbnail puts a much
         # bigger, clearly visible version of it in the embed's top-right
