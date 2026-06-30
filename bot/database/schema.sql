@@ -125,16 +125,19 @@ CREATE TABLE IF NOT EXISTS tickets (
 );
 
 CREATE TABLE IF NOT EXISTS reviews (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    order_id     INTEGER NOT NULL UNIQUE REFERENCES orders(id),
-    product_id   INTEGER NOT NULL REFERENCES products(id),
-    user_id      INTEGER NOT NULL,
-    rating       INTEGER NOT NULL,
-    review_text  TEXT,
-    anonymous    INTEGER NOT NULL DEFAULT 0,
-    status       TEXT NOT NULL DEFAULT 'pending',  -- pending|approved|rejected|hidden
-    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id             INTEGER NOT NULL UNIQUE REFERENCES orders(id),
+    product_id           INTEGER NOT NULL REFERENCES products(id),
+    user_id              INTEGER NOT NULL,
+    rating               INTEGER NOT NULL,
+    review_text          TEXT,
+    image_url            TEXT,
+    anonymous            INTEGER NOT NULL DEFAULT 0,
+    status               TEXT NOT NULL DEFAULT 'pending',  -- pending|approved|rejected|hidden
+    awaiting_photo       INTEGER NOT NULL DEFAULT 0,
+    awaiting_photo_since TEXT,
+    created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS settings (
