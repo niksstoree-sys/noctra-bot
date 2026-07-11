@@ -208,20 +208,31 @@ approve|reject|hide|delete`) are still there as a backup/moderation path.
 **Public reputation showcase:** set `/settings reviews_channel` to a channel
 everyone can see, and the moment staff runs `/review admin approve` on a
 review, it's automatically posted there as a polished review card --
-reviewer's avatar + name (via Discord's embed author slot, skipped entirely
-for anonymous reviews so that choice is actually respected), a 5-star emoji
-rating, the written review, a Verified Purchase badge, and your own brand
-logo as the thumbnail (set once with `/settings brand_logo`) -- a running
-feed of social proof for the store, separate from the private approval
-workflow itself.
+reviewer's avatar + actual display name (fetched fresh from Discord, since
+an embed's author slot displays plain text rather than resolving `@mention`
+syntax the way a normal message does; anonymous reviews skip this entirely
+so that choice is actually respected), a 5-star emoji rating, the written
+review, a Verified Purchase badge, and your own brand logo as a full banner
+image (set once with `/settings brand_logo`) -- a running feed of social
+proof for the store, separate from the private approval workflow itself.
 
-**Keeping the customer's DM tidy:** the checkout messages NOCTRA sends
-(order summary, payment instructions) are tracked per order, and the moment
-that order is marked **Completed**, they're deleted from the customer's DM
-automatically -- so a long order history doesn't just pile up forever. The
-fresh "order complete" + review-prompt messages are sent right after, so the
-customer still gets clear confirmation, just without the old checkout
-clutter sitting above it.
+**Keeping the customer's DM tidy:** every working message NOCTRA sends
+during checkout and order processing -- the order summary, the "marked
+paid" notification, staff replies via the Reply button -- is tracked per
+order. The moment that order is marked **Completed**, all of it gets wiped
+in one go, replaced by a clean, permanent **invoice** (item, amount paid,
+payment method, order ID, completion timestamp -- proof of purchase the
+customer can scroll back to later) plus the review-prompt button. Once the
+customer actually submits that review, the prompt itself is cleared too,
+leaving only the invoice behind as the lasting record. Transient prompts
+earlier in checkout ("Continue Order", "Select a Payment Method") are
+deleted immediately when the customer clicks past them, regardless of how
+the order later turns out.
+
+(All of this relies on the messages being normal, non-ephemeral DM
+messages -- ephemeral interaction responses aren't retrievable through the
+regular channel message API at all, so they can never be programmatically
+deleted later. Nothing in the DM checkout/order flow uses `ephemeral`.)
 
 **Replying to a customer without typing a command:** every order-log post
 (and every forwarded payment-proof message) has a **Reply** button. Tapping
