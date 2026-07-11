@@ -69,6 +69,10 @@ class RuntimeSettings:
     async def brand_logo_url(self) -> str | None:
         return await self._get("brand_logo_url", None)
 
+    async def leaderboard_channel_id(self) -> int | None:
+        value = await self._get("leaderboard_channel_id", None)
+        return int(value) if value else None
+
     async def ticket_category_id(self) -> int | None:
         value = await self._get("ticket_category_id", config.ticket_category_id)
         return int(value) if value else None

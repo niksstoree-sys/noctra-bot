@@ -198,6 +198,13 @@ async def mark_completed(bot, order_id: int) -> tuple[bool, str]:
         # RatingButton in bot.ui.views.
         await _notify_customer(bot, order["user_id"], review_embed, review_view, order_id=order_id, track=True)
 
+    # Refresh the leaderboard image -- deferred import, fire-and-forget.
+    try:
+        from bot.utils.leaderboard import refresh_leaderboard
+        await refresh_leaderboard(bot)
+    except Exception:  # noqa: BLE001
+        logger.warning("Leaderboard refresh failed silently after order #%s.", order_id)
+
     return True, f"Order #{order_id} marked as completed."
 
 
