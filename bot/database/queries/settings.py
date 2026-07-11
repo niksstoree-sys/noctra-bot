@@ -16,6 +16,8 @@ KNOWN_KEYS = (
     "order_log_channel_id",
     "reviews_channel_id",
     "brand_logo_url",
+    "leaderboard_channel_id",
+    "leaderboard_message_id",
     "ticket_category_id",
     "ticket_archive_category_id",
     "ticket_log_channel_id",
