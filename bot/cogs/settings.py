@@ -10,6 +10,7 @@ from bot.database.queries import settings as settings_q
 from bot.ui import embeds
 from bot.ui.views import ShopPanelView
 from bot.utils.helpers import RuntimeSettings
+from bot.utils.leaderboard import refresh_leaderboard
 from bot.utils.permissions import staff_only
 
 
@@ -81,6 +82,42 @@ class SettingsCog(commands.Cog):
             embed=embeds.success_embed("Brand logo set.", ).set_thumbnail(url=image_url), ephemeral=True
         )
 
+    @settings_group.command(
+        name="leaderboard_channel",
+        description="Set the channel for the Top Spenders leaderboard image.",
+    )
+    @app_commands.describe(channel="Dedicated channel for the leaderboard image")
+    @staff_only()
+    async def leaderboard_channel(self, interaction: discord.Interaction, channel: discord.TextChannel) -> None:
+        await settings_q.set_setting(self.bot.db, "leaderboard_channel_id", str(channel.id))
+        await settings_q.set_setting(self.bot.db, "leaderboard_message_id", "")
+        await interaction.response.send_message(
+            embed=embeds.success_embed(
+                f"Leaderboard channel set to {channel.mention}. "
+                "Use `/settings leaderboard_refresh` to post the first image."
+            ),
+            ephemeral=True,
+        )
+
+    @settings_group.command(
+        name="leaderboard_refresh",
+        description="Manually post or refresh the leaderboard image right now.",
+    )
+    @staff_only()
+    async def leaderboard_refresh(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        ok = await refresh_leaderboard(self.bot)
+        if ok:
+            await interaction.followup.send(embed=embeds.success_embed("Leaderboard refreshed."), ephemeral=True)
+        else:
+            await interaction.followup.send(
+                embed=embeds.error_embed(
+                    "Could not refresh the leaderboard. Make sure "
+                    "`/settings leaderboard_channel` is set and there is at least one completed order."
+                ),
+                ephemeral=True,
+            )
+
     @settings_group.command(name="view", description="View current settings.")
     @staff_only()
     async def view(self, interaction: discord.Interaction) -> None:
@@ -89,6 +126,7 @@ class SettingsCog(commands.Cog):
             "staff_role_id": await runtime.staff_role_id(),
             "order_log_channel_id": await runtime.order_log_channel_id(),
             "reviews_channel_id": await runtime.reviews_channel_id(),
+            "leaderboard_channel_id": await runtime.leaderboard_channel_id(),
             "brand_logo_url": await runtime.brand_logo_url(),
             "ticket_category_id": await runtime.ticket_category_id(),
             "ticket_archive_category_id": await runtime.ticket_archive_category_id(),
