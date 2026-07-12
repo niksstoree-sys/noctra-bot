@@ -118,15 +118,90 @@ class SettingsCog(commands.Cog):
                 ephemeral=True,
             )
 
+    @settings_group.command(
+        name="leaderboard_exclude",
+        description="Hide a user's spend from the Top Spenders leaderboard (e.g. a tester account).",
+    )
+    @app_commands.describe(user="User to exclude from the leaderboard")
+    @staff_only()
+    async def leaderboard_exclude(self, interaction: discord.Interaction, user: discord.User) -> None:
+        runtime = RuntimeSettings(self.bot.db)
+        excluded = await runtime.leaderboard_excluded_user_ids()
+        if user.id in excluded:
+            await interaction.response.send_message(
+                embed=embeds.error_embed(f"{user.mention} is already excluded from the leaderboard."),
+                ephemeral=True,
+            )
+            return
+        excluded.append(user.id)
+        await settings_q.set_setting(
+            self.bot.db, "leaderboard_excluded_users", ",".join(str(uid) for uid in excluded)
+        )
+        await interaction.response.defer(ephemeral=True)
+        await refresh_leaderboard(self.bot)
+        await interaction.followup.send(
+            embed=embeds.success_embed(
+                f"{user.mention} is now excluded from the leaderboard. Their existing orders are untouched -- "
+                "they just won't be counted here. Leaderboard refreshed."
+            ),
+            ephemeral=True,
+        )
+
+    @settings_group.command(
+        name="leaderboard_include",
+        description="Remove a user from the leaderboard exclusion list.",
+    )
+    @app_commands.describe(user="User to re-include on the leaderboard")
+    @staff_only()
+    async def leaderboard_include(self, interaction: discord.Interaction, user: discord.User) -> None:
+        runtime = RuntimeSettings(self.bot.db)
+        excluded = await runtime.leaderboard_excluded_user_ids()
+        if user.id not in excluded:
+            await interaction.response.send_message(
+                embed=embeds.error_embed(f"{user.mention} isn't currently excluded."), ephemeral=True
+            )
+            return
+        excluded.remove(user.id)
+        await settings_q.set_setting(
+            self.bot.db, "leaderboard_excluded_users", ",".join(str(uid) for uid in excluded)
+        )
+        await interaction.response.defer(ephemeral=True)
+        await refresh_leaderboard(self.bot)
+        await interaction.followup.send(
+            embed=embeds.success_embed(f"{user.mention} is no longer excluded. Leaderboard refreshed."),
+            ephemeral=True,
+        )
+
+    @settings_group.command(
+        name="leaderboard_excluded_list",
+        description="List users currently excluded from the leaderboard.",
+    )
+    @staff_only()
+    async def leaderboard_excluded_list(self, interaction: discord.Interaction) -> None:
+        runtime = RuntimeSettings(self.bot.db)
+        excluded = await runtime.leaderboard_excluded_user_ids()
+        if not excluded:
+            await interaction.response.send_message(
+                embed=embeds.info_embed("Excluded From Leaderboard", "No users are currently excluded."),
+                ephemeral=True,
+            )
+            return
+        lines = "\n".join(f"<@{uid}> (`{uid}`)" for uid in excluded)
+        await interaction.response.send_message(
+            embed=embeds.info_embed("Excluded From Leaderboard", lines), ephemeral=True
+        )
+
     @settings_group.command(name="view", description="View current settings.")
     @staff_only()
     async def view(self, interaction: discord.Interaction) -> None:
         runtime = RuntimeSettings(self.bot.db)
+        excluded_count = len(await runtime.leaderboard_excluded_user_ids())
         values = {
             "staff_role_id": await runtime.staff_role_id(),
             "order_log_channel_id": await runtime.order_log_channel_id(),
             "reviews_channel_id": await runtime.reviews_channel_id(),
             "leaderboard_channel_id": await runtime.leaderboard_channel_id(),
+            "leaderboard_excluded_users": excluded_count or "None",
             "brand_logo_url": await runtime.brand_logo_url(),
             "ticket_category_id": await runtime.ticket_category_id(),
             "ticket_archive_category_id": await runtime.ticket_archive_category_id(),
