@@ -88,6 +88,13 @@ class RuntimeSettings:
                 ids.append(int(piece))
         return ids
 
+    async def purchase_feed_channel_id(self) -> int | None:
+        """Public channel where a card is posted every time an order is
+        marked completed -- "X just bought Y" -- configured via
+        /settings purchase_feed_channel."""
+        value = await self._get("purchase_feed_channel_id", None)
+        return int(value) if value else None
+
     async def ticket_category_id(self) -> int | None:
         value = await self._get("ticket_category_id", config.ticket_category_id)
         return int(value) if value else None
