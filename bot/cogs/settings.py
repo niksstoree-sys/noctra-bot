@@ -83,6 +83,19 @@ class SettingsCog(commands.Cog):
         )
 
     @settings_group.command(
+        name="purchase_feed_channel",
+        description="Set the channel where 'X just bought Y' purchase announcements are posted.",
+    )
+    @app_commands.describe(channel="Public channel for purchase announcements")
+    @staff_only()
+    async def purchase_feed_channel(self, interaction: discord.Interaction, channel: discord.TextChannel) -> None:
+        await settings_q.set_setting(self.bot.db, "purchase_feed_channel_id", str(channel.id))
+        await interaction.response.send_message(
+            embed=embeds.success_embed(f"Purchase announcements will now be posted in {channel.mention}."),
+            ephemeral=True,
+        )
+
+    @settings_group.command(
         name="leaderboard_channel",
         description="Set the channel for the Top Spenders leaderboard image.",
     )
@@ -200,6 +213,7 @@ class SettingsCog(commands.Cog):
             "staff_role_id": await runtime.staff_role_id(),
             "order_log_channel_id": await runtime.order_log_channel_id(),
             "reviews_channel_id": await runtime.reviews_channel_id(),
+            "purchase_feed_channel_id": await runtime.purchase_feed_channel_id(),
             "leaderboard_channel_id": await runtime.leaderboard_channel_id(),
             "leaderboard_excluded_users": excluded_count or "None",
             "brand_logo_url": await runtime.brand_logo_url(),
