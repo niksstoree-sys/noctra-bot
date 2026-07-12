@@ -224,6 +224,19 @@ async def cancel_order(bot, order_id: int, reason: str | None) -> tuple[bool, st
     if reason:
         text += f"\nReason: {reason}"
     await _notify_customer(bot, order["user_id"], embeds.error_embed(text))
+
+    # Keep the leaderboard accurate immediately. get_top_spenders already
+    # excludes anything that isn't status='completed', but if this order had
+    # been marked completed earlier and is only being cancelled now, the
+    # posted leaderboard image itself won't drop that spend until something
+    # triggers a refresh -- so trigger one right here instead of waiting for
+    # the next completed order.
+    try:
+        from bot.utils.leaderboard import refresh_leaderboard
+        await refresh_leaderboard(bot)
+    except Exception:  # noqa: BLE001
+        logger.warning("Leaderboard refresh failed silently after cancelling order #%s.", order_id)
+
     return True, f"Order #{order_id} cancelled."
 
 
@@ -242,4 +255,13 @@ async def refund_order(bot, order_id: int, reason: str | None) -> tuple[bool, st
     if reason:
         text += f"\nReason: {reason}"
     await _notify_customer(bot, order["user_id"], embeds.error_embed(text))
+
+    # Same reasoning as cancel_order -- a refund can happen after an order
+    # was already completed and counted, so refresh right away.
+    try:
+        from bot.utils.leaderboard import refresh_leaderboard
+        await refresh_leaderboard(bot)
+    except Exception:  # noqa: BLE001
+        logger.warning("Leaderboard refresh failed silently after refunding order #%s.", order_id)
+
     return True, f"Order #{order_id} refunded."
