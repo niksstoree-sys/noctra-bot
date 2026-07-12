@@ -13,6 +13,7 @@ from __future__ import annotations
 import discord
 
 from bot.core.logger import logger
+from bot.database.queries import category_types as category_types_q
 from bot.database.queries import orders as orders_q
 from bot.database.queries import payments as payments_q
 from bot.database.queries import products as products_q
@@ -121,6 +122,42 @@ async def cleanup_dm_messages(bot, order_id: int) -> None:
     await orders_q.clear_dm_messages(db, order_id)
 
 
+async def _post_purchase_announcement(bot, order, product) -> None:
+    """Posts a public "X just bought Y" card to the configured purchase-feed
+    channel -- see /settings purchase_feed_channel. Silently does nothing
+    if no channel is configured or the customer can't be resolved; this is
+    a nice-to-have announcement, not something that should ever block or
+    fail the actual order-completion flow."""
+    if not product:
+        return
+
+    db = bot.db
+    runtime = RuntimeSettings(db)
+    channel_id = await runtime.purchase_feed_channel_id()
+    if not channel_id:
+        return
+
+    channel = bot.get_channel(channel_id)
+    if not isinstance(channel, discord.TextChannel):
+        return
+
+    try:
+        user = bot.get_user(order["user_id"]) or await bot.fetch_user(order["user_id"])
+        buyer_display = user.display_name
+        buyer_avatar_url = user.display_avatar.url
+    except discord.HTTPException:
+        buyer_display = f"User {order['user_id']}"
+        buyer_avatar_url = None
+
+    category_type = await category_types_q.get_category_type(db, product["category_type_id"])
+    embed = embeds.purchase_announcement_embed(buyer_display, buyer_avatar_url, product, category_type, order)
+
+    try:
+        await channel.send(embed=embed)
+    except discord.HTTPException:
+        logger.exception("Failed to post purchase announcement for order #%s.", order["id"])
+
+
 async def mark_paid(bot, order_id: int) -> tuple[bool, str]:
     db = bot.db
     order = await orders_q.get_order(db, order_id)
@@ -197,6 +234,13 @@ async def mark_completed(bot, order_id: int) -> tuple[bool, str]:
         # (and the button on it) gets cleaned up automatically -- see
         # RatingButton in bot.ui.views.
         await _notify_customer(bot, order["user_id"], review_embed, review_view, order_id=order_id, track=True)
+
+    # Public "X just bought Y" announcement -- fire-and-forget, never blocks
+    # or fails the completion itself.
+    try:
+        await _post_purchase_announcement(bot, order, product)
+    except Exception:  # noqa: BLE001
+        logger.warning("Purchase announcement failed silently after order #%s.", order_id)
 
     # Refresh the leaderboard image -- deferred import, fire-and-forget.
     try:
