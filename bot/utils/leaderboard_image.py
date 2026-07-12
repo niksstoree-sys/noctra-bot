@@ -1,6 +1,10 @@
 """
-Generates a dark-purple leaderboard image using Pillow, matching the
-NOCTRA brand palette.
+NOCTRA leaderboard image generator -- Pillow only, no emoji (they require
+a full emoji font that isn't available on Railway), medals are drawn as
+coloured circles with a rank number inside.
+
+Canvas: 1200 x dynamic height so Discord renders it at a reasonable size
+without the user having to zoom in.
 """
 
 from __future__ import annotations
@@ -10,221 +14,270 @@ from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageFont
 
-BG_TOP       = (10, 6, 24)
-BG_BOT       = (22, 12, 44)
-CARD_BG      = (28, 18, 54)
-CARD_BORDER  = (75, 31, 168)
+# ── Palette ─────────────────────────────────────────────────────────────────
+BG_TOP       = (8,  5, 20)
+BG_BOT       = (18, 10, 40)
+CARD_BG      = (24, 15, 50)
+CARD_BG_TOP3 = (30, 18, 62)
 ACCENT       = (124, 92, 255)
-GOLD         = (255, 200, 60)
-SILVER       = (192, 200, 215)
-BRONZE       = (205, 127, 50)
+GOLD         = (255, 195, 55)
+SILVER       = (185, 195, 210)
+BRONZE       = (200, 120, 45)
 WHITE        = (255, 255, 255)
-MUTED        = (150, 135, 190)
-BAR_BG       = (45, 30, 80)
-BAR_FILL     = (124, 92, 255)
-MEDAL_COLORS = [GOLD, SILVER, BRONZE]
+OFF_WHITE    = (220, 215, 240)
+MUTED        = (140, 128, 178)
+BAR_BG       = (40, 26, 72)
+MEDAL_CLR    = [GOLD, SILVER, BRONZE]
 
-IMG_W        = 900
-HEADER_H     = 110
-ROW_H        = 88
-ROW_MARGIN   = 12
-SIDE_PAD     = 40
-BOTTOM_PAD   = 36
-CORNER_R     = 20
-BAR_H        = 10
-BAR_W_MAX    = 340
-AVATAR_SIZE  = 54
-AVATAR_MARGIN = 16
+# ── Layout ──────────────────────────────────────────────────────────────────
+IMG_W        = 1200
+HEADER_H     = 130
+ROW_H        = 100
+ROW_GAP      = 10
+PAD          = 48
+BOTTOM       = 44
+RADIUS       = 16          # card corner radius
+BAR_H        = 12
+BAR_W        = 420         # max bar width
+AVATAR_D     = 64          # avatar diameter
+BADGE_D      = 52          # medal badge diameter
 
-_BOLD   = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-_MEDIUM = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+# ── Fonts ────────────────────────────────────────────────────────────────────
+_BOLD    = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+_REG     = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 
-def _font(path: str, size: int) -> ImageFont.FreeTypeFont:
+def _f(path: str, size: int) -> ImageFont.FreeTypeFont:
     try:
         return ImageFont.truetype(path, size)
     except Exception:
         return ImageFont.load_default()
 
 
-def _gradient_bg(w: int, h: int) -> Image.Image:
-    img = Image.new("RGB", (w, h))
+def _tw(draw: ImageDraw.ImageDraw, text: str, font) -> int:
+    return int(draw.textlength(text, font=font))
+
+
+def _gradient(w: int, h: int) -> Image.Image:
+    img  = Image.new("RGB", (w, h))
     draw = ImageDraw.Draw(img)
     for y in range(h):
         t = y / h
-        r = int(BG_TOP[0] + (BG_BOT[0] - BG_TOP[0]) * t)
-        g = int(BG_TOP[1] + (BG_BOT[1] - BG_TOP[1]) * t)
-        b = int(BG_TOP[2] + (BG_BOT[2] - BG_TOP[2]) * t)
+        r = int(BG_TOP[0] * (1 - t) + BG_BOT[0] * t)
+        g = int(BG_TOP[1] * (1 - t) + BG_BOT[1] * t)
+        b = int(BG_TOP[2] * (1 - t) + BG_BOT[2] * t)
         draw.line([(0, y), (w, y)], fill=(r, g, b))
     return img
 
 
-def _rounded_rect(draw, xy, radius, fill, outline=None, outline_width=2):
-    draw.rounded_rectangle(xy, radius=radius, fill=fill,
-                           outline=outline, width=outline_width)
+def _glow_overlay(w: int, h: int) -> Image.Image:
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d     = ImageDraw.Draw(layer)
+    spots = [
+        (int(w * 0.85), int(h * 0.08), 320, 30),
+        (int(w * 0.12), int(h * 0.72), 260, 22),
+        (int(w * 0.50), int(h * 0.45), 200, 12),
+    ]
+    for cx, cy, cr, alpha in spots:
+        for r in range(cr, 0, -5):
+            a = int(alpha * (r / cr) ** 2.2)
+            d.ellipse([cx-r, cy-r, cx+r, cy+r], fill=(*ACCENT, a))
+    return layer
 
 
-def _format_currency(amount: float, currency: str) -> str:
+def _draw_medal(img: Image.Image, cx: int, cy: int, rank: int) -> None:
+    """Draw a coloured circle badge with the rank number inside."""
+    draw   = ImageDraw.Draw(img)
+    r      = BADGE_D // 2
+    colour = MEDAL_CLR[rank] if rank < 3 else MUTED
+    # shadow
+    draw.ellipse([cx-r+2, cy-r+2, cx+r+2, cy+r+2], fill=(0, 0, 0, 80) if False else (10, 5, 25))
+    # fill
+    draw.ellipse([cx-r, cy-r, cx+r, cy+r], fill=colour)
+    # inner highlight ring
+    inner_c = tuple(min(255, int(c * 1.35)) for c in colour)
+    draw.ellipse([cx-r+3, cy-r+3, cx+r-3, cy+r-3],
+                 outline=inner_c, width=2)
+    # rank text
+    f   = _f(_BOLD, 20 if rank < 9 else 16)
+    txt = str(rank + 1)
+    tw  = _tw(draw, txt, f)
+    draw.text((cx - tw // 2, cy - 13), txt,
+              font=f, fill=(20, 10, 40) if rank < 3 else WHITE)
+
+
+def _circle_avatar(img: Image.Image, avatar: Image.Image | None,
+                   initials: str, x: int, y: int, d: int) -> None:
+    """Paste a circular avatar; fall back to initials bubble."""
+    draw = ImageDraw.Draw(img)
+    r    = d // 2
+
+    if avatar:
+        try:
+            av   = avatar.copy().convert("RGBA").resize((d, d), Image.LANCZOS)
+            mask = Image.new("L", (d, d), 0)
+            ImageDraw.Draw(mask).ellipse([0, 0, d-1, d-1], fill=255)
+            buf  = Image.new("RGBA", (d, d))
+            buf.paste(av, (0, 0))
+            img.paste(buf, (x, y), mask)
+            # ring
+            draw.ellipse([x-2, y-2, x+d+1, y+d+1], outline=ACCENT, width=2)
+            return
+        except Exception:
+            pass
+
+    # Initials fallback
+    draw.ellipse([x, y, x+d, y+d], fill=(55, 35, 100))
+    draw.ellipse([x-2, y-2, x+d+1, y+d+1], outline=ACCENT, width=2)
+    ini  = (initials[:2] if len(initials) >= 2 else initials).upper()
+    f    = _f(_BOLD, 22)
+    fw   = _tw(draw, ini, f)
+    draw.text((x + (d - fw) // 2, y + (d - 26) // 2),
+              ini, font=f, fill=WHITE)
+
+
+def _fmt(amount: float, currency: str) -> str:
     c = currency.upper()
     if amount >= 1_000_000:
-        return f"{c} {amount/1_000_000:.1f}jt"
-    if amount >= 1_000:
-        return f"{c} {amount/1_000:.1f}k"
-    return f"{c} {amount:,.0f}"
+        s = f"{amount/1_000_000:.1f}jt"
+    elif amount >= 1_000:
+        s = f"{amount/1_000:.1f}k"
+    else:
+        s = f"{amount:,.0f}"
+    return f"{c} {s}"
 
 
 def generate_leaderboard_image(
     entries: list[dict],
     *,
-    title: str = "NOCTRA STORE",
-    subtitle: str = "Top Spenders",
+    title:            str          = "NOCTRA STORE",
+    subtitle:         str          = "Top Spenders",
     brand_logo_bytes: bytes | None = None,
-    timestamp: str = "",
+    timestamp:        str          = "",
 ) -> BytesIO:
-    n_rows = max(1, len(entries))
-    img_h  = HEADER_H + n_rows * (ROW_H + ROW_MARGIN) + BOTTOM_PAD
+    n    = max(1, len(entries))
+    h    = HEADER_H + n * (ROW_H + ROW_GAP) - ROW_GAP + BOTTOM
+    img  = _gradient(IMG_W, h)
 
-    img  = _gradient_bg(IMG_W, img_h)
-
-    # Glow overlay
-    glow = Image.new("RGBA", (IMG_W, img_h), (0, 0, 0, 0))
-    gd   = ImageDraw.Draw(glow)
-    for cx, cy, cr, alpha in [
-        (IMG_W * 0.8, img_h * 0.1, 260, 35),
-        (IMG_W * 0.1, img_h * 0.7, 200, 25),
-    ]:
-        for r in range(int(cr), 0, -4):
-            a = int(alpha * (r / cr) ** 2)
-            gd.ellipse([cx-r, cy-r, cx+r, cy+r], fill=(124, 92, 255, a))
+    # glow
+    glow = _glow_overlay(IMG_W, h)
     img  = Image.alpha_composite(img.convert("RGBA"), glow).convert("RGB")
     draw = ImageDraw.Draw(img)
 
-    # Header
-    f_title    = _font(_BOLD,   36)
-    f_subtitle = _font(_MEDIUM, 18)
-    f_ts       = _font(_MEDIUM, 13)
-
-    title_y = 20
+    # ── Brand logo ────────────────────────────────────────────────────────
+    logo_bottom = 0
     if brand_logo_bytes:
         try:
             logo = Image.open(BytesIO(brand_logo_bytes)).convert("RGBA")
-            logo.thumbnail((56, 56))
+            logo.thumbnail((72, 72), Image.LANCZOS)
             lw, lh = logo.size
-            img.paste(logo, ((IMG_W - lw) // 2, (HEADER_H // 2 - lh) // 2 - 4), logo)
-            title_y = HEADER_H // 2 + 4
+            lx     = (IMG_W - lw) // 2
+            ly     = 12
+            img.paste(logo, (lx, ly), logo)
+            logo_bottom = ly + lh + 6
         except Exception:
             pass
 
-    tw = draw.textlength(title, font=f_title)
-    tx = (IMG_W - tw) // 2
-    draw.text((tx + 2, title_y + 2), title, font=f_title, fill=(30, 10, 60))
-    draw.text((tx, title_y),         title, font=f_title, fill=ACCENT)
+    # ── Header text ───────────────────────────────────────────────────────
+    f_title = _f(_BOLD, 48)
+    f_sub   = _f(_REG,  20)
+    f_ts    = _f(_REG,  14)
 
-    if not brand_logo_bytes:
-        sw = draw.textlength(subtitle, font=f_subtitle)
-        draw.text(((IMG_W - sw) // 2, title_y + 46), subtitle, font=f_subtitle, fill=WHITE)
+    ty  = max(logo_bottom, 14)
+    tw  = _tw(draw, title, f_title)
+    tx  = (IMG_W - tw) // 2
+    # shadow
+    draw.text((tx + 3, ty + 3), title, font=f_title, fill=(20, 8, 50))
+    # main (two-tone: accent on left half, lighter on right)
+    draw.text((tx, ty), title, font=f_title, fill=ACCENT)
+
+    sy   = ty + 56
+    sw   = _tw(draw, subtitle, f_sub)
+    draw.text(((IMG_W - sw) // 2, sy), subtitle, font=f_sub, fill=OFF_WHITE)
 
     if timestamp:
-        tsw = draw.textlength(timestamp, font=f_ts)
-        draw.text(((IMG_W - tsw) // 2, HEADER_H - 22), timestamp, font=f_ts, fill=MUTED)
+        tw2  = _tw(draw, timestamp, f_ts)
+        draw.text(((IMG_W - tw2) // 2, sy + 28), timestamp, font=f_ts, fill=MUTED)
 
-    draw.line([(SIDE_PAD, HEADER_H - 6), (IMG_W - SIDE_PAD, HEADER_H - 6)],
-              fill=CARD_BORDER, width=1)
+    # divider
+    div_y = HEADER_H - 8
+    draw.line([(PAD, div_y), (IMG_W - PAD, div_y)], fill=(75, 31, 168), width=1)
 
-    # Row fonts
-    f_rank   = _font(_BOLD,   22)
-    f_name   = _font(_BOLD,   17)
-    f_spend  = _font(_BOLD,   15)
-    f_orders = _font(_MEDIUM, 13)
+    # ── Row fonts ─────────────────────────────────────────────────────────
+    f_name   = _f(_BOLD, 20)
+    f_orders = _f(_REG,  15)
+    f_spend  = _f(_BOLD, 18)
 
     max_spent = max((e["total_spent"] for e in entries), default=1) or 1
 
     for i, entry in enumerate(entries):
-        rank   = entry.get("rank", i)
-        name   = entry.get("display_name", "Unknown")[:22]
-        spent  = entry.get("total_spent", 0)
-        orders = entry.get("total_orders", 0)
-        cur    = entry.get("currency_label", "IDR")
-        avatar = entry.get("avatar")
+        rank    = entry.get("rank", i)
+        name    = entry.get("display_name", "Unknown")[:24]
+        spent   = entry.get("total_spent", 0)
+        orders  = entry.get("total_orders", 0)
+        cur     = entry.get("currency_label", "IDR")
+        avatar  = entry.get("avatar")
 
-        row_y = HEADER_H + i * (ROW_H + ROW_MARGIN)
-        rx0, rx1 = SIDE_PAD, IMG_W - SIDE_PAD
-        ry0, ry1 = row_y, row_y + ROW_H
+        ry0 = HEADER_H + i * (ROW_H + ROW_GAP)
+        ry1 = ry0 + ROW_H
+        rx0 = PAD
+        rx1 = IMG_W - PAD
 
-        # Card
+        # card bg -- top 3 get a slightly brighter card
+        cf = CARD_BG_TOP3 if rank < 3 else CARD_BG
         if rank < 3:
-            bcol = MEDAL_COLORS[rank]
-            _rounded_rect(draw, (rx0-1, ry0-1, rx1+1, ry1+1), CORNER_R, fill=bcol)
-        _rounded_rect(draw, (rx0, ry0, rx1, ry1), CORNER_R,
-                      fill=CARD_BG, outline=CARD_BORDER, outline_width=1)
+            # coloured top border strip
+            draw.rounded_rectangle([rx0, ry0, rx1, ry0 + 3],
+                                   radius=2, fill=MEDAL_CLR[rank])
+        draw.rounded_rectangle([rx0, ry0, rx1, ry1],
+                               radius=RADIUS, fill=cf,
+                               outline=(60, 40, 110), width=1)
 
-        cx = rx0 + 14
+        # ── Medal badge ──────────────────────────────────────────────────
+        badge_cx = rx0 + 40
+        badge_cy = ry0 + ROW_H // 2
+        _draw_medal(img, badge_cx, badge_cy, rank)
+        draw = ImageDraw.Draw(img)   # re-acquire after paste ops in medal
 
-        # Rank
-        badge_col  = MEDAL_COLORS[rank] if rank < 3 else MUTED
-        medal_txt  = ["🥇", "🥈", "🥉"][rank] if rank < 3 else f"#{rank + 1}"
-        f_badge    = f_rank
-        bw = draw.textlength(medal_txt, font=f_badge)
-        draw.text((cx, ry0 + (ROW_H - 24) // 2), medal_txt,
-                  font=f_badge, fill=badge_col)
-        cx += int(bw) + 10
+        # ── Avatar ───────────────────────────────────────────────────────
+        av_x = badge_cx + BADGE_D // 2 + 14
+        av_y = ry0 + (ROW_H - AVATAR_D) // 2
+        _circle_avatar(img, avatar, name, av_x, av_y, AVATAR_D)
+        draw = ImageDraw.Draw(img)
 
-        # Avatar
-        av_x = cx
-        av_y = ry0 + (ROW_H - AVATAR_SIZE) // 2
-        if avatar:
-            try:
-                av = avatar.copy().convert("RGBA")
-                av.thumbnail((AVATAR_SIZE, AVATAR_SIZE))
-                mask = Image.new("L", (AVATAR_SIZE, AVATAR_SIZE), 0)
-                ImageDraw.Draw(mask).ellipse(
-                    [0, 0, AVATAR_SIZE-1, AVATAR_SIZE-1], fill=255)
-                base = Image.new("RGBA", (AVATAR_SIZE, AVATAR_SIZE))
-                base.paste(av, ((AVATAR_SIZE - av.width) // 2,
-                                (AVATAR_SIZE - av.height) // 2))
-                img.paste(base, (av_x, av_y), mask)
-            except Exception:
-                draw.ellipse([av_x, av_y, av_x+AVATAR_SIZE, av_y+AVATAR_SIZE],
-                             fill=CARD_BORDER)
-        else:
-            draw.ellipse([av_x, av_y, av_x+AVATAR_SIZE, av_y+AVATAR_SIZE],
-                         fill=CARD_BORDER)
-            ini = name[0].upper() if name else "?"
-            iw  = draw.textlength(ini, font=f_name)
-            draw.text((av_x + (AVATAR_SIZE - iw)//2, av_y + (AVATAR_SIZE-18)//2),
-                      ini, font=f_name, fill=WHITE)
-        cx += AVATAR_SIZE + AVATAR_MARGIN
+        # ── Name + order count ────────────────────────────────────────────
+        text_x = av_x + AVATAR_D + 18
+        draw.text((text_x, ry0 + 24), name, font=f_name, fill=WHITE)
+        ord_txt = f"{orders} order{'s' if orders != 1 else ''}"
+        draw.text((text_x, ry0 + 52), ord_txt, font=f_orders, fill=MUTED)
 
-        # Name + orders
-        draw.text((cx, ry0 + 14), name, font=f_name, fill=WHITE)
-        draw.text((cx, ry0 + 38), f"{orders} order{'s' if orders != 1 else ''}",
-                  font=f_orders, fill=MUTED)
+        # ── Spend label + progress bar (right side) ───────────────────────
+        bar_x1  = rx1 - 28
+        bar_x0  = bar_x1 - BAR_W
+        spend_s = _fmt(spent, cur)
+        col     = MEDAL_CLR[rank] if rank < 3 else ACCENT
+        sw2     = _tw(draw, spend_s, f_spend)
+        spend_x = bar_x0 + (BAR_W - sw2) // 2
+        draw.text((spend_x, ry0 + 20), spend_s, font=f_spend, fill=col)
 
-        # Spend + bar (right side)
-        spend_txt = _format_currency(spent, cur)
-        bar_x1    = rx1 - 24
-        bar_x0    = bar_x1 - BAR_W_MAX
-        spend_w   = int(draw.textlength(spend_txt, font=f_spend))
-        draw.text((bar_x0 + (BAR_W_MAX - spend_w)//2, ry0 + 14),
-                  spend_txt, font=f_spend,
-                  fill=MEDAL_COLORS[rank] if rank < 3 else ACCENT)
+        bar_y   = ry0 + 55
+        ratio   = math.sqrt(spent / max_spent)
+        fill_w  = max(6, int(BAR_W * ratio))
+        # track
+        draw.rounded_rectangle([bar_x0, bar_y, bar_x0 + BAR_W, bar_y + BAR_H],
+                               radius=BAR_H // 2, fill=BAR_BG)
+        # fill -- gradient: medal colour -> accent
+        bar_col = tuple(
+            int(col[c] * 0.75 + ACCENT[c] * 0.25) for c in range(3)
+        )
+        draw.rounded_rectangle([bar_x0, bar_y, bar_x0 + fill_w, bar_y + BAR_H],
+                               radius=BAR_H // 2, fill=bar_col)
 
-        bar_y    = ry0 + 40
-        ratio    = math.sqrt(spent / max_spent)
-        fill_w   = max(4, int(BAR_W_MAX * ratio))
-        bar_col  = tuple(int(MEDAL_COLORS[rank][c]*0.9 + ACCENT[c]*0.1)
-                         for c in range(3)) if rank < 3 else BAR_FILL
-
-        _rounded_rect(draw, (bar_x0, bar_y, bar_x0+BAR_W_MAX, bar_y+BAR_H),
-                      BAR_H//2, fill=BAR_BG)
-        _rounded_rect(draw, (bar_x0, bar_y, bar_x0+fill_w, bar_y+BAR_H),
-                      BAR_H//2, fill=bar_col)
-
-    # Footer
-    wm = "NOCTRA STORE  •  noctra"
-    wm_font = _font(_MEDIUM, 12)
-    ww = draw.textlength(wm, font=wm_font)
-    draw.text(((IMG_W - ww)//2, img_h - 22), wm, font=wm_font, fill=MUTED)
+    # ── Footer ────────────────────────────────────────────────────────────
+    f_wm  = _f(_REG, 14)
+    wm    = "NOCTRA STORE  \u2022  noctra"
+    ww    = _tw(draw, wm, f_wm)
+    draw.text(((IMG_W - ww) // 2, h - 28), wm, font=f_wm, fill=MUTED)
 
     buf = BytesIO()
     img.save(buf, format="PNG", optimize=True)
