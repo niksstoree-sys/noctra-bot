@@ -38,8 +38,11 @@ async def refresh_leaderboard(bot) -> bool:
 
     # get_top_spenders only counts orders with status='completed' AND
     # payment_status='paid' -- cancelled/refunded orders never show up here
-    # in the first place, no extra filtering needed on this side.
-    rows = await lb_q.get_top_spenders(db, limit=10)
+    # in the first place. On top of that, anyone manually excluded via
+    # /settings leaderboard_exclude (e.g. staff/tester accounts) is dropped
+    # too, so test orders don't show up on the public leaderboard.
+    excluded = await runtime.leaderboard_excluded_user_ids()
+    rows = await lb_q.get_top_spenders(db, limit=10, excluded_user_ids=excluded)
     if not rows:
         return False
 
