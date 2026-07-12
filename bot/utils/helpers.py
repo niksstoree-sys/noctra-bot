@@ -73,6 +73,21 @@ class RuntimeSettings:
         value = await self._get("leaderboard_channel_id", None)
         return int(value) if value else None
 
+    async def leaderboard_excluded_user_ids(self) -> list[int]:
+        """User IDs manually hidden from the Top Spenders leaderboard via
+        /settings leaderboard_exclude -- e.g. staff/tester accounts used to
+        test checkout, whose spend shouldn't count toward the public
+        leaderboard. Stored as a comma-separated string of IDs."""
+        value = await self._get("leaderboard_excluded_users", "")
+        if not value:
+            return []
+        ids: list[int] = []
+        for piece in str(value).split(","):
+            piece = piece.strip()
+            if piece.isdigit():
+                ids.append(int(piece))
+        return ids
+
     async def ticket_category_id(self) -> int | None:
         value = await self._get("ticket_category_id", config.ticket_category_id)
         return int(value) if value else None
