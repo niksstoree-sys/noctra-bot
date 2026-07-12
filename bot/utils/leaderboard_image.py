@@ -2,16 +2,24 @@
 NOCTRA leaderboard image generator -- Pillow only, no emoji (they require a
 full emoji font that isn't available on Railway).
 
-Redesigned for a clean, professional look:
+Fonts are bundled in bot/assets/fonts/ and loaded from a path relative to
+this file. Earlier versions pointed at a system font path
+(/usr/share/fonts/truetype/dejavu/...) which does not exist on a bare
+Railway/Nixpacks container -- Pillow silently fell back to its built-in
+bitmap font whenever that happened, which ignores the requested size
+entirely. That's why text stayed tiny no matter what size was asked for
+while shapes (circles, bars) scaled normally. Bundling the .ttf files with
+the project removes that dependency on the host having system fonts
+installed at all.
+
+Design notes:
   * No brand logo image -- just the brand name, set large, plus a small
     tracked (letter-spaced) "TOP SPENDERS" label underneath it.
-  * Everything (rank, name, order count, spend) is rendered noticeably
-    larger than before so it's actually legible at a glance.
+  * Rank, name, order count, and spend are all rendered noticeably larger
+    than the original design so they're legible at a glance.
   * The whole canvas is drawn at 2x resolution internally and downsampled
-    at the very end (supersampling) -- this is what keeps text and rounded
-    edges crisp instead of soft/aliased, which was the biggest giveaway of
-    a "quick AI mockup" look.
-  * The background glow is toned way down, and the old duplicate footer
+    at the very end (supersampling) for crisp text and edges.
+  * The background glow is restrained, and the old duplicate footer
     watermark is gone -- one clean brand header is enough.
 """
 
@@ -19,6 +27,7 @@ from __future__ import annotations
 
 import math
 from io import BytesIO
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -53,15 +62,55 @@ BADGE_D  = 60
 SS = 2  # supersampling factor -- draw everything at 2x, shrink at the end
 
 # -- Fonts ----------------------------------------------------------------------
-_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-_REG  = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+# Bundled with the repo, so this works regardless of what fonts (if any)
+# the host OS has installed. Falls back to a couple of common system paths
+# just in case, and to Pillow's built-in bitmap font only as a last resort
+# (which will look wrong -- if you ever see tiny text again, it means even
+# the bundled files failed to load, e.g. the assets folder wasn't deployed).
+_ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+
+_BOLD_CANDIDATES = [
+    _ASSETS_DIR / "DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+]
+_REG_CANDIDATES = [
+    _ASSETS_DIR / "DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+]
 
 
-def _f(path: str, size: int) -> ImageFont.FreeTypeFont:
-    try:
-        return ImageFont.truetype(path, size)
-    except Exception:
-        return ImageFont.load_default()
+def _resolve_font_path(candidates: list) -> str | None:
+    for candidate in candidates:
+        if Path(candidate).is_file():
+            return str(candidate)
+    return None
+
+
+_BOLD = _resolve_font_path(_BOLD_CANDIDATES)
+_REG = _resolve_font_path(_REG_CANDIDATES)
+
+_font_cache: dict[tuple[str | None, int], ImageFont.FreeTypeFont] = {}
+
+
+def _f(path: str | None, size: int) -> ImageFont.FreeTypeFont:
+    key = (path, size)
+    if key in _font_cache:
+        return _font_cache[key]
+    font = None
+    if path:
+        try:
+            font = ImageFont.truetype(path, size)
+        except Exception:
+            font = None
+    if font is None:
+        # Last-resort fallback -- ignores `size`, so text will look wrong.
+        # If this ever triggers in production, the assets/fonts folder
+        # didn't get deployed alongside the code.
+        font = ImageFont.load_default()
+    _font_cache[key] = font
+    return font
 
 
 def _tw(draw: ImageDraw.ImageDraw, text: str, font) -> int:
@@ -114,8 +163,14 @@ def _draw_medal(draw: ImageDraw.ImageDraw, cx: int, cy: int, rank: int, r: int, 
     draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=colour, outline=border, width=2)
     txt = str(rank + 1)
     tw = _tw(draw, txt, font)
+    # Baseline offset via textbbox so the digit is actually centred instead
+    # of guessed from font size (matters a lot for a fallback bitmap font,
+    # whose metrics don't match the truetype ones we designed the layout
+    # around).
+    bbox = draw.textbbox((0, 0), txt, font=font)
+    th = bbox[3] - bbox[1]
     text_fill = (24, 14, 46) if rank < 3 else WHITE
-    draw.text((cx - tw // 2, cy - int(r * 0.62)), txt, font=font, fill=text_fill)
+    draw.text((cx - tw // 2, cy - th // 2 - bbox[1]), txt, font=font, fill=text_fill)
 
 
 def _circle_avatar(img: Image.Image, avatar: Image.Image | None, initials: str,
