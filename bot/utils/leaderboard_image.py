@@ -164,10 +164,24 @@ def generate_leaderboard_image(
     img  = Image.alpha_composite(img.convert("RGBA"), glow).convert("RGB")
     draw = ImageDraw.Draw(img)
 
+    # ── Brand logo ────────────────────────────────────────────────────────
+    logo_bottom = 0
+    if brand_logo_bytes:
+        try:
+            logo = Image.open(BytesIO(brand_logo_bytes)).convert("RGBA")
+            logo.thumbnail((72, 72), Image.LANCZOS)
+            lw, lh = logo.size
+            lx     = (IMG_W - lw) // 2
+            ly     = 12
+            img.paste(logo, (lx, ly), logo)
+            logo_bottom = ly + lh + 6
+        except Exception:
+            pass
+
     # ── Header text ───────────────────────────────────────────────────────
-    f_title = _f(_BOLD, 55)
-    f_sub   = _f(_REG,  30)
-    f_ts    = _f(_REG,  25)
+    f_title = _f(_BOLD, 48)
+    f_sub   = _f(_REG,  20)
+    f_ts    = _f(_REG,  14)
 
     ty  = max(logo_bottom, 14)
     tw  = _tw(draw, title, f_title)
@@ -190,9 +204,9 @@ def generate_leaderboard_image(
     draw.line([(PAD, div_y), (IMG_W - PAD, div_y)], fill=(75, 31, 168), width=1)
 
     # ── Row fonts ─────────────────────────────────────────────────────────
-    f_name   = _f(_BOLD, 40)
-    f_orders = _f(_REG,  30)
-    f_spend  = _f(_BOLD, 45)
+    f_name   = _f(_BOLD, 20)
+    f_orders = _f(_REG,  15)
+    f_spend  = _f(_BOLD, 18)
 
     max_spent = max((e["total_spent"] for e in entries), default=1) or 1
 
