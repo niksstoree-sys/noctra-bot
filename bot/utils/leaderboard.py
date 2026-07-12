@@ -36,21 +36,18 @@ async def refresh_leaderboard(bot) -> bool:
     if not isinstance(channel, discord.TextChannel):
         return False
 
+    # get_top_spenders only counts orders with status='completed' AND
+    # payment_status='paid' -- cancelled/refunded orders never show up here
+    # in the first place, no extra filtering needed on this side.
     rows = await lb_q.get_top_spenders(db, limit=10)
     if not rows:
         return False
 
-    brand_logo_bytes: bytes | None = None
-    brand_logo_url = await runtime.brand_logo_url()
-
     entries = []
     async with aiohttp.ClientSession() as session:
-        if brand_logo_url:
-            brand_logo_bytes = await _fetch_bytes(session, brand_logo_url)
-
         for i, row in enumerate(rows):
             display_name = f"User {row['user_id']}"
-            avatar_img   = None
+            avatar_img = None
             try:
                 user = bot.get_user(row["user_id"]) or await bot.fetch_user(row["user_id"])
                 display_name = user.display_name
@@ -70,12 +67,11 @@ async def refresh_leaderboard(bot) -> bool:
                 "avatar":         avatar_img,
             })
 
-    ts  = datetime.now(timezone.utc).strftime("Updated %d %b %Y  %H:%M UTC")
+    ts = datetime.now(timezone.utc).strftime("Updated %d %b %Y, %H:%M UTC")
     buf = generate_leaderboard_image(
         entries,
         title="NOCTRA STORE",
-        subtitle="Top Spenders",
-        brand_logo_bytes=brand_logo_bytes,
+        subtitle="TOP SPENDERS",
         timestamp=ts,
     )
 
