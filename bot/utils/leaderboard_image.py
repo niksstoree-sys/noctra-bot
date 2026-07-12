@@ -179,11 +179,11 @@ def generate_leaderboard_image(
             pass
 
     # ── Header text ───────────────────────────────────────────────────────
-    f_title = _f(_BOLD, 48)
-    f_sub   = _f(_REG,  20)
-    f_ts    = _f(_REG,  14)
+    f_title = _f(_BOLD, 60)
+    f_sub   = _f(_REG,  35)
+    f_ts    = _f(_REG,  25)
 
-    ty  = max(logo_bottom, 14)
+    ty  = max(logo_bottom, 34)
     tw  = _tw(draw, title, f_title)
     tx  = (IMG_W - tw) // 2
     # shadow
@@ -204,9 +204,9 @@ def generate_leaderboard_image(
     draw.line([(PAD, div_y), (IMG_W - PAD, div_y)], fill=(75, 31, 168), width=1)
 
     # ── Row fonts ─────────────────────────────────────────────────────────
-    f_name   = _f(_BOLD, 20)
-    f_orders = _f(_REG,  15)
-    f_spend  = _f(_BOLD, 18)
+    f_name   = _f(_BOLD, 40)
+    f_orders = _f(_REG,  35)
+    f_spend  = _f(_BOLD, 28)
 
     max_spent = max((e["total_spent"] for e in entries), default=1) or 1
 
