@@ -255,6 +255,40 @@ def order_invoice_embed(
     return embed
 
 
+def purchase_announcement_embed(
+    buyer_display: str,
+    buyer_avatar_url: str | None,
+    product_row,
+    category_type_row,
+    order_row,
+) -> discord.Embed:
+    """Public "someone just bought X" card posted to the configured
+    purchase-feed channel once an order is marked completed. Keeps the same
+    visual language as review_card_embed -- a small author tag plus a
+    bigger thumbnail copy of the same avatar, since the tiny author icon
+    alone is easy to miss."""
+    price_text = format_price(order_row["total_price"], order_row["currency_label"])
+    type_label = product_row["product_type"].replace("_", " ").title()
+
+    embed = base_embed(
+        f"{MARK_DIAMOND} Pembelian Baru",
+        f"**{buyer_display}** baru saja membeli **{product_row['name']}**!",
+        color=COLOR_SUCCESS,
+        thumbnail_url=buyer_avatar_url,
+        image_url=product_row["image_url"] or None,
+    )
+    embed.set_author(name=buyer_display, icon_url=buyer_avatar_url or None)
+
+    embed.add_field(name="Product", value=product_row["name"], inline=True)
+    if category_type_row:
+        cat_emoji = f"{category_type_row['emoji']} " if category_type_row["emoji"] else ""
+        embed.add_field(name="Category", value=f"{cat_emoji}{category_type_row['name']}", inline=True)
+    embed.add_field(name="Type", value=type_label, inline=True)
+    embed.add_field(name="Price", value=f"**{price_text}**", inline=True)
+
+    return embed
+
+
 def ticket_welcome_embed(order_summary_text: str | None = None) -> discord.Embed:
     description = (
         "Thank you for opening a ticket. Our staff will assist you shortly.\n\n"
