@@ -162,6 +162,7 @@ class Database:
             ("reviews", "image_url", "ALTER TABLE reviews ADD COLUMN image_url TEXT"),
             ("reviews", "awaiting_photo", "ALTER TABLE reviews ADD COLUMN awaiting_photo INTEGER NOT NULL DEFAULT 0"),
             ("reviews", "awaiting_photo_since", "ALTER TABLE reviews ADD COLUMN awaiting_photo_since TEXT"),
+            ("tickets", "claimed_by", "ALTER TABLE tickets ADD COLUMN claimed_by INTEGER"),
         ]
         for table, column, ddl in migrations:
             cursor = await self.conn.execute(f"PRAGMA table_info({table})")
