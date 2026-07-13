@@ -78,10 +78,17 @@ class NoctraBot(commands.Bot):
     def _register_persistent_views(self) -> None:
         # Imported lazily to avoid import-order issues with bot.db being used
         # inside view callbacks before the cog package is fully loaded.
-        from bot.ui.views import OpenTicketPanelView, ShopPanelView, TicketControlView, TicketReopenView
+        from bot.ui.views import (
+            OpenTicketPanelView,
+            ShopPanelView,
+            TicketClaimedView,
+            TicketControlView,
+            TicketReopenView,
+        )
 
         self.add_view(ShopPanelView())
         self.add_view(TicketControlView())
+        self.add_view(TicketClaimedView())
         self.add_view(TicketReopenView())
         self.add_view(OpenTicketPanelView())
         logger.info("Persistent views registered.")
