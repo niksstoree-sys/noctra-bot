@@ -20,7 +20,7 @@ or the optional order-log channel (`/settings order_log_channel`).
 
 Persistent views/items (survive bot restarts):
   - Static custom_id, registered via `add_view` in setup_hook: ShopPanelView,
-    TicketControlView, TicketReopenView, OpenTicketPanelView.
+    TicketControlView, TicketClaimedView, TicketReopenView, OpenTicketPanelView.
   - Dynamic custom_id (order/rating id encoded in the id itself), registered
     via `add_dynamic_items` in setup_hook: OrderActionButton, ReviewStartButton.
 """
@@ -474,6 +474,88 @@ async def finalize_order(interaction: discord.Interaction, product, field_values
 # TICKET CONTROLS (persistent)
 # ============================================================================
 
+def _with_claim_field(embed: discord.Embed, claimant_mention: str | None) -> discord.Embed:
+    """Returns a copy of `embed` with its "Claimed By" field set (or
+    removed, when `claimant_mention` is None) -- shared by the claim/unclaim
+    button callbacks so the ticket message always reflects who's currently
+    handling it."""
+    new_embed = embed.copy()
+    for index, field in enumerate(new_embed.fields):
+        if field.name == "Claimed By":
+            new_embed.remove_field(index)
+            break
+    if claimant_mention:
+        new_embed.add_field(name="Claimed By", value=claimant_mention, inline=True)
+    return new_embed
+
+
+def _source_embed(interaction: discord.Interaction) -> discord.Embed:
+    """The embed currently on the ticket message this button lives on, with
+    a safe fallback in the unlikely case the message somehow has none."""
+    if interaction.message and interaction.message.embeds:
+        return interaction.message.embeds[0]
+    return embeds.ticket_welcome_embed()
+
+
+async def _handle_ticket_close(interaction: discord.Interaction) -> None:
+    """Shared by both TicketControlView and TicketClaimedView's Close Ticket
+    button -- claimed or not, closing works the same way."""
+    ticket = await tickets_q.get_ticket_by_channel(interaction.client.db, interaction.channel.id)  # type: ignore[attr-defined]
+    if not ticket:
+        await interaction.response.send_message(embed=embeds.error_embed("This is not a ticket channel."), ephemeral=True)
+        return
+    if not (await is_staff(interaction) or interaction.user.id == ticket["user_id"]):
+        await interaction.response.send_message(
+            embed=embeds.error_embed("Only staff or the ticket owner can close this ticket."), ephemeral=True
+        )
+        return
+
+    async def on_reason(inter: discord.Interaction, reason: str) -> None:
+        await inter.response.defer(ephemeral=True)
+        await ticket_actions.close_ticket(inter.client, inter.channel, str(inter.user), reason or None)
+        await inter.followup.send(embed=embeds.success_embed("Ticket closed."), ephemeral=True)
+
+    await interaction.response.send_modal(ReasonModal("Close Ticket", on_reason))
+
+
+class TicketDeleteConfirmView(discord.ui.View):
+    """A short-lived (non-persistent) confirmation step for the Delete
+    Channel button -- deleting a channel is permanent and can't be undone,
+    so this makes sure a staff member meant to click it before it happens."""
+
+    def __init__(self, channel_id: int) -> None:
+        super().__init__(timeout=20)
+        self.channel_id = channel_id
+
+    @discord.ui.button(label="Yes, Delete Permanently", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        channel = interaction.client.get_channel(self.channel_id)  # type: ignore[attr-defined]
+        if isinstance(channel, discord.TextChannel):
+            try:
+                await channel.delete(reason=f"Ticket deleted by {interaction.user}")
+            except discord.HTTPException:
+                await interaction.response.edit_message(
+                    embed=embeds.error_embed("Failed to delete the channel -- check my permissions."), view=None
+                )
+                return
+        else:
+            await interaction.response.edit_message(
+                embed=embeds.error_embed("Channel is already gone."), view=None
+            )
+            return
+        # The channel itself is gone by this point, so there's nothing left
+        # to edit a response into -- this message only reaches the staff
+        # member's own ephemeral interaction, which Discord keeps around
+        # even after the channel disappears.
+        await interaction.response.edit_message(embed=embeds.success_embed("Channel deleted."), view=None)
+        self.stop()
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(embed=embeds.info_embed("Cancelled", "Channel was not deleted."), view=None)
+        self.stop()
+
+
 class TicketReopenView(discord.ui.View):
     def __init__(self) -> None:
         super().__init__(timeout=None)
@@ -489,6 +571,23 @@ class TicketReopenView(discord.ui.View):
         await ticket_actions.reopen_ticket(interaction.client, interaction.channel, str(interaction.user))
         await interaction.followup.send(embed=embeds.success_embed("Ticket reopened."), ephemeral=True)
 
+    @discord.ui.button(label="Delete Channel", style=discord.ButtonStyle.danger, custom_id="noctra:ticket:delete")
+    async def delete_channel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await is_staff(interaction):
+            await interaction.response.send_message(
+                embed=embeds.error_embed("Only staff can delete a ticket channel."), ephemeral=True
+            )
+            return
+        await interaction.response.send_message(
+            embed=embeds.error_embed(
+                "This permanently deletes this channel. The transcript has already been logged "
+                "(if a log channel is configured), but the channel itself cannot be recovered. "
+                "Are you sure?"
+            ),
+            view=TicketDeleteConfirmView(interaction.channel.id),
+            ephemeral=True,
+        )
+
 
 ticket_actions._ReopenViewRef.set(TicketReopenView())
 
@@ -497,29 +596,80 @@ class TicketControlView(discord.ui.View):
     """Attached to general support tickets only -- order-specific actions
     (Mark Paid/Completed/Cancel/Refund) now live on OrderActionButton in the
     order-log channel and/or the /order commands, since orders no longer
-    create a per-order ticket channel (see module docstring)."""
+    create a per-order ticket channel (see module docstring).
+
+    This is the *unclaimed* state. Once a staff member taps Claim, the
+    message switches to TicketClaimedView instead -- see the Claim button
+    callback below."""
 
     def __init__(self) -> None:
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.secondary, custom_id="noctra:ticket:close")
-    async def close(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        ticket = await tickets_q.get_ticket_by_channel(interaction.client.db, interaction.channel.id)  # type: ignore[attr-defined]
+    @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.primary, custom_id="noctra:ticket:claim")
+    async def claim(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await is_staff(interaction):
+            await interaction.response.send_message(
+                embed=embeds.error_embed("Only staff can claim a ticket."), ephemeral=True
+            )
+            return
+        db = interaction.client.db  # type: ignore[attr-defined]
+        ticket = await tickets_q.get_ticket_by_channel(db, interaction.channel.id)
         if not ticket:
             await interaction.response.send_message(embed=embeds.error_embed("This is not a ticket channel."), ephemeral=True)
             return
-        if not (await is_staff(interaction) or interaction.user.id == ticket["user_id"]):
+        if ticket["claimed_by"]:
             await interaction.response.send_message(
-                embed=embeds.error_embed("Only staff or the ticket owner can close this ticket."), ephemeral=True
+                embed=embeds.error_embed(f"This ticket is already claimed by <@{ticket['claimed_by']}>."),
+                ephemeral=True,
             )
             return
 
-        async def on_reason(inter: discord.Interaction, reason: str) -> None:
-            await inter.response.defer(ephemeral=True)
-            await ticket_actions.close_ticket(inter.client, inter.channel, str(inter.user), reason or None)
-            await inter.followup.send(embed=embeds.success_embed("Ticket closed."), ephemeral=True)
+        await tickets_q.set_ticket_claim(db, interaction.channel.id, interaction.user.id)
+        new_embed = _with_claim_field(_source_embed(interaction), interaction.user.mention)
+        await interaction.response.edit_message(embed=new_embed, view=TicketClaimedView())
+        await interaction.followup.send(
+            embed=embeds.success_embed(f"Ticket claimed by {interaction.user.mention}."), ephemeral=True
+        )
 
-        await interaction.response.send_modal(ReasonModal("Close Ticket", on_reason))
+    @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.secondary, custom_id="noctra:ticket:close")
+    async def close(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await _handle_ticket_close(interaction)
+
+
+class TicketClaimedView(discord.ui.View):
+    """The *claimed* state -- shown after a staff member taps Claim Ticket.
+    Swaps Claim for Unclaim; Close Ticket behaves identically either way."""
+
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Unclaim", style=discord.ButtonStyle.secondary, custom_id="noctra:ticket:unclaim")
+    async def unclaim(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        db = interaction.client.db  # type: ignore[attr-defined]
+        ticket = await tickets_q.get_ticket_by_channel(db, interaction.channel.id)
+        if not ticket:
+            await interaction.response.send_message(embed=embeds.error_embed("This is not a ticket channel."), ephemeral=True)
+            return
+
+        is_claimant = ticket["claimed_by"] == interaction.user.id
+        is_admin = isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.administrator
+        if not (is_claimant or is_admin):
+            await interaction.response.send_message(
+                embed=embeds.error_embed(
+                    "Only the staff member who claimed this ticket (or an admin) can unclaim it."
+                ),
+                ephemeral=True,
+            )
+            return
+
+        await tickets_q.set_ticket_claim(db, interaction.channel.id, None)
+        new_embed = _with_claim_field(_source_embed(interaction), None)
+        await interaction.response.edit_message(embed=new_embed, view=TicketControlView())
+        await interaction.followup.send(embed=embeds.success_embed("Ticket unclaimed."), ephemeral=True)
+
+    @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.secondary, custom_id="noctra:ticket:close_claimed")
+    async def close(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await _handle_ticket_close(interaction)
 
 
 # ============================================================================
