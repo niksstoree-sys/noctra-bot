@@ -40,6 +40,14 @@ async def set_ticket_status(
         )
 
 
+async def set_ticket_claim(db: Database, channel_id: int, user_id: int | None) -> None:
+    """Set (or clear, when user_id is None) who is currently handling this
+    ticket -- powers the Claim/Unclaim buttons on the ticket panel."""
+    await db.execute(
+        "UPDATE tickets SET claimed_by = ? WHERE channel_id = ?", (user_id, channel_id)
+    )
+
+
 async def touch_activity(db: Database, channel_id: int) -> None:
     await db.execute(
         "UPDATE tickets SET last_activity_at = datetime('now') WHERE channel_id = ?",
