@@ -1,4 +1,4 @@
-"""Admin & user commands: /ticket"""
+"""Command admin & user: /ticket"""
 
 from __future__ import annotations
 
@@ -15,9 +15,9 @@ from bot.utils.permissions import is_staff, staff_only
 
 
 class TicketCog(commands.Cog):
-    """Ticket panel setup plus open/close/reopen commands."""
+    """Setup panel ticket plus command open/close/reopen."""
 
-    ticket_group = app_commands.Group(name="ticket", description="Manage support tickets.", guild_only=True)
+    ticket_group = app_commands.Group(name="ticket", description="Kelola ticket support.", guild_only=True)
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -30,13 +30,13 @@ class TicketCog(commands.Cog):
         if ticket and ticket["status"] == "open":
             await tickets_q.touch_activity(self.bot.db, message.channel.id)
 
-    @ticket_group.command(name="panel", description="Post the Open Ticket panel in this channel.")
+    @ticket_group.command(name="panel", description="Posting panel Open Ticket di channel ini.")
     @app_commands.describe(
-        title="Panel title",
-        description="Panel body text",
-        image_url="Full-width banner image shown under the text (PNG/JPG/WebP)",
-        thumbnail_url="Small logo/thumbnail image shown top-right (PNG/JPG/WebP)",
-        button_label="Text shown on the button",
+        title="Judul panel",
+        description="Isi teks panel",
+        image_url="Gambar banner full-width di bawah teks (PNG/JPG/WebP)",
+        thumbnail_url="Logo/thumbnail kecil di kanan atas (PNG/JPG/WebP)",
+        button_label="Teks yang muncul di tombol",
     )
     @staff_only()
     async def panel(
@@ -44,18 +44,18 @@ class TicketCog(commands.Cog):
         interaction: discord.Interaction,
         title: str = "NOCTRA -- Support",
         description: str = (
-            "Need help with an order or have a question for staff? "
-            "Click below to open a private ticket."
+            "Butuh bantuan soal order atau ada pertanyaan buat staff? "
+            "Klik di bawah buat buka ticket pribadi."
         ),
         image_url: str | None = None,
         thumbnail_url: str | None = None,
-        button_label: str = "Open Ticket",
+        button_label: str = "Buka Ticket",
     ) -> None:
         embed = embeds.base_embed(title, description, image_url=image_url, thumbnail_url=thumbnail_url)
         await interaction.channel.send(embed=embed, view=OpenTicketPanelView(button_label=button_label))
-        await interaction.response.send_message(embed=embeds.success_embed("Ticket panel posted."), ephemeral=True)
+        await interaction.response.send_message(embed=embeds.success_embed("Panel ticket udah diposting."), ephemeral=True)
 
-    @ticket_group.command(name="open", description="Open a new support ticket.")
+    @ticket_group.command(name="open", description="Buka ticket support baru.")
     @app_commands.guild_only()
     async def open_ticket(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -68,45 +68,45 @@ class TicketCog(commands.Cog):
             view=TicketControlView(),
         )
         await interaction.followup.send(
-            embed=embeds.success_embed(f"Your ticket has been created: {channel.mention}"), ephemeral=True
+            embed=embeds.success_embed(f"Ticket kamu udah dibuat: {channel.mention}"), ephemeral=True
         )
 
-    @ticket_group.command(name="close", description="Close the current ticket.")
-    @app_commands.describe(reason="Reason for closing")
+    @ticket_group.command(name="close", description="Tutup ticket yang lagi dibuka ini.")
+    @app_commands.describe(reason="Alasan penutupan")
     async def close(self, interaction: discord.Interaction, reason: str | None = None) -> None:
         ticket = await tickets_q.get_ticket_by_channel(self.bot.db, interaction.channel.id)
         if not ticket:
-            await interaction.response.send_message(embed=embeds.error_embed("This is not a ticket channel."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Ini bukan channel ticket."), ephemeral=True)
             return
         if not (await is_staff(interaction) or interaction.user.id == ticket["user_id"]):
             await interaction.response.send_message(
-                embed=embeds.error_embed("Only staff or the ticket owner can close this ticket."), ephemeral=True
+                embed=embeds.error_embed("Cuma staff atau pemilik ticket yang bisa nutup ticket ini."), ephemeral=True
             )
             return
 
         if reason is not None:
             await interaction.response.defer(ephemeral=True)
             await ticket_actions.close_ticket(self.bot, interaction.channel, str(interaction.user), reason)
-            await interaction.followup.send(embed=embeds.success_embed("Ticket closed."), ephemeral=True)
+            await interaction.followup.send(embed=embeds.success_embed("Ticket udah ditutup."), ephemeral=True)
             return
 
         async def on_reason(inter: discord.Interaction, typed_reason: str) -> None:
             await inter.response.defer(ephemeral=True)
             await ticket_actions.close_ticket(self.bot, inter.channel, str(inter.user), typed_reason or None)
-            await inter.followup.send(embed=embeds.success_embed("Ticket closed."), ephemeral=True)
+            await inter.followup.send(embed=embeds.success_embed("Ticket udah ditutup."), ephemeral=True)
 
-        await interaction.response.send_modal(ReasonModal("Close Ticket", on_reason))
+        await interaction.response.send_modal(ReasonModal("Tutup Ticket", on_reason))
 
-    @ticket_group.command(name="reopen", description="Reopen the current ticket.")
+    @ticket_group.command(name="reopen", description="Buka lagi ticket yang lagi dibuka ini.")
     @staff_only()
     async def reopen(self, interaction: discord.Interaction) -> None:
         ticket = await tickets_q.get_ticket_by_channel(self.bot.db, interaction.channel.id)
         if not ticket:
-            await interaction.response.send_message(embed=embeds.error_embed("This is not a ticket channel."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Ini bukan channel ticket."), ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
         await ticket_actions.reopen_ticket(self.bot, interaction.channel, str(interaction.user))
-        await interaction.followup.send(embed=embeds.success_embed("Ticket reopened."), ephemeral=True)
+        await interaction.followup.send(embed=embeds.success_embed("Ticket udah dibuka lagi."), ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

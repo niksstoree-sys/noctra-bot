@@ -1,9 +1,9 @@
 """
-Background loops:
-  * Expire orders whose payment deadline has passed.
-  * Auto-archive tickets that have been inactive past the configured window.
-  * Clear stale awaiting-photo review flags (customer never sent a photo
-    and didn't tap Skip -- cleaned up after PHOTO_WINDOW_MINUTES).
+Background loop:
+  * Expire order yang deadline bayarnya udah lewat.
+  * Auto-archive ticket yang udah inaktif lewat batas waktu yang diatur.
+  * Bersihin flag awaiting-photo review yang basi (customer gak pernah
+    kirim foto dan gak klik Lewati -- dibersihin abis PHOTO_WINDOW_MINUTES).
 """
 
 from __future__ import annotations
@@ -47,14 +47,14 @@ class TasksCog(commands.Cog):
                     user = self.bot.get_user(order["user_id"]) or await self.bot.fetch_user(order["user_id"])
                     await user.send(
                         embed=embeds.error_embed(
-                            f"Your order #{order['id']} payment window has expired. "
-                            "Place a new order from the store if you'd still like this item."
+                            f"Waktu bayar order #{order['id']} kamu udah abis. "
+                            "Pesen lagi dari toko kalau masih mau barang ini."
                         )
                     )
                 except discord.HTTPException:
                     pass
         except Exception:  # noqa: BLE001
-            logger.exception("Error in expire_payments task.")
+            logger.exception("Error di task expire_payments.")
 
     @tasks.loop(minutes=15)
     async def auto_archive_tickets(self) -> None:
@@ -68,24 +68,24 @@ class TasksCog(commands.Cog):
                 if isinstance(channel, discord.TextChannel):
                     await ticket_actions.close_ticket(
                         self.bot, channel, "NOCTRA (auto-archive)",
-                        "Automatically archived due to inactivity.", auto=True,
+                        "Otomatis diarsipin karena inaktif.", auto=True,
                     )
         except Exception:  # noqa: BLE001
-            logger.exception("Error in auto_archive_tickets task.")
+            logger.exception("Error di task auto_archive_tickets.")
 
     @tasks.loop(minutes=5)
     async def clear_stale_photo_windows(self) -> None:
-        """Drop awaiting_photo flag on reviews whose 10-minute photo window
-        has passed -- stops the flag from getting permanently stuck if the
-        customer never replied or the bot restarted mid-wait."""
+        """Hapus flag awaiting_photo di review yang jendela 10 menitnya udah
+        lewat -- biar flag-nya gak nyangkut permanen kalau customer gak
+        pernah bales atau bot-nya restart di tengah nunggu."""
         try:
             db = self.bot.db
             stale = await reviews_q.list_stale_awaiting_photo_reviews(db)
             for review in stale:
                 await reviews_q.set_awaiting_photo(db, review["id"], False)
-                logger.debug("Cleared stale photo window for review #%s.", review["id"])
+                logger.debug("Jendela foto basi dibersihin buat review #%s.", review["id"])
         except Exception:  # noqa: BLE001
-            logger.exception("Error in clear_stale_photo_windows task.")
+            logger.exception("Error di task clear_stale_photo_windows.")
 
     @expire_payments.before_loop
     @auto_archive_tickets.before_loop

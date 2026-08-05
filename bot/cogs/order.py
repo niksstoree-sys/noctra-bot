@@ -1,4 +1,4 @@
-"""Admin commands: /order. User commands: /orders."""
+"""Command admin: /order. Command user: /orders."""
 
 from __future__ import annotations
 
@@ -21,9 +21,9 @@ PaymentStatus = Literal["pending", "paid", "expired", "cancelled"]
 
 
 class OrderCog(commands.Cog):
-    """Admin order management (/order) and customer order history (/orders)."""
+    """Kelola order buat admin (/order) dan riwayat order customer (/orders)."""
 
-    order_group = app_commands.Group(name="order", description="Manage customer orders.", guild_only=True)
+    order_group = app_commands.Group(name="order", description="Kelola order customer.", guild_only=True)
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -36,25 +36,25 @@ class OrderCog(commands.Cog):
         field_values = await orders_q.get_field_values(db, order_id)
         return embeds.order_summary_embed(order, product, payment, field_values)
 
-    @order_group.command(name="view", description="View full details of an order.")
-    @app_commands.describe(order="Order to view")
+    @order_group.command(name="view", description="Liat detail lengkap suatu order.")
+    @app_commands.describe(order="Order yang mau dilihat")
     @app_commands.autocomplete(order=any_order_autocomplete)
     @staff_only()
     async def view(self, interaction: discord.Interaction, order: int) -> None:
         existing = await orders_q.get_order(self.bot.db, order)
         if not existing:
-            await interaction.response.send_message(embed=embeds.error_embed("Order not found."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Order gak ketemu."), ephemeral=True)
             return
         await interaction.response.send_message(embed=await self._full_embed(order), ephemeral=True)
 
-    @order_group.command(name="list", description="List recent orders, optionally filtered by status.")
-    @app_commands.describe(status="Filter by order status")
+    @order_group.command(name="list", description="Liat order terbaru, bisa difilter per status.")
+    @app_commands.describe(status="Filter berdasarkan status order")
     @staff_only()
     async def list_orders(self, interaction: discord.Interaction, status: OrderStatus | None = None) -> None:
         rows = await orders_q.list_orders(self.bot.db, status=status, limit=25)
         if not rows:
             await interaction.response.send_message(
-                embed=embeds.info_embed("Orders", "No orders found."), ephemeral=True
+                embed=embeds.info_embed("Order", "Belum ada order nih."), ephemeral=True
             )
             return
         lines = [
@@ -63,14 +63,14 @@ class OrderCog(commands.Cog):
             for r in rows
         ]
         await interaction.response.send_message(
-            embed=embeds.info_embed("Orders", "\n".join(lines)), ephemeral=True
+            embed=embeds.info_embed("Order", "\n".join(lines)), ephemeral=True
         )
 
-    @order_group.command(name="status", description="Manually set an order's status.")
+    @order_group.command(name="status", description="Atur status order secara manual.")
     @app_commands.describe(
-        order="Order to update",
-        status="New status",
-        reason="Reason shown to the customer (used for cancelled/refunded)",
+        order="Order yang mau diupdate",
+        status="Status baru",
+        reason="Alasan yang ditunjukin ke customer (dipake buat cancelled/refunded)",
     )
     @app_commands.autocomplete(order=any_order_autocomplete)
     @staff_only()
@@ -79,7 +79,7 @@ class OrderCog(commands.Cog):
     ) -> None:
         existing = await orders_q.get_order(self.bot.db, order)
         if not existing:
-            await interaction.response.send_message(embed=embeds.error_embed("Order not found."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Order gak ketemu."), ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -91,13 +91,13 @@ class OrderCog(commands.Cog):
             ok, message = await order_actions.refund_order(self.bot, order, reason)
         else:
             await orders_q.set_order_status(self.bot.db, order, status)
-            ok, message = True, f"Order `#{order}` status set to **{status}**."
+            ok, message = True, f"Status order `#{order}` diatur jadi **{status}**."
         await interaction.followup.send(
             embed=embeds.success_embed(message) if ok else embeds.error_embed(message), ephemeral=True
         )
 
-    @order_group.command(name="payment_status", description="Manually set an order's payment status.")
-    @app_commands.describe(order="Order to update", payment_status="New payment status")
+    @order_group.command(name="payment_status", description="Atur status pembayaran order secara manual.")
+    @app_commands.describe(order="Order yang mau diupdate", payment_status="Status pembayaran baru")
     @app_commands.autocomplete(order=any_order_autocomplete)
     @staff_only()
     async def set_payment_status(
@@ -105,7 +105,7 @@ class OrderCog(commands.Cog):
     ) -> None:
         existing = await orders_q.get_order(self.bot.db, order)
         if not existing:
-            await interaction.response.send_message(embed=embeds.error_embed("Order not found."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Order gak ketemu."), ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -113,38 +113,38 @@ class OrderCog(commands.Cog):
             ok, message = await order_actions.mark_paid(self.bot, order)
         else:
             await orders_q.set_payment_status(self.bot.db, order, payment_status)
-            ok, message = True, f"Order `#{order}` payment status set to **{payment_status}**."
+            ok, message = True, f"Status pembayaran order `#{order}` diatur jadi **{payment_status}**."
         await interaction.followup.send(
             embed=embeds.success_embed(message) if ok else embeds.error_embed(message), ephemeral=True
         )
 
-    @order_group.command(name="message", description="Send a message to the customer about their order (delivered by DM).")
-    @app_commands.describe(order="Order to message the customer about", message="Message to send")
+    @order_group.command(name="message", description="Kirim pesan ke customer soal order-nya (dikirim lewat DM).")
+    @app_commands.describe(order="Order yang mau dikirimin pesan soal ini", message="Pesan yang mau dikirim")
     @app_commands.autocomplete(order=any_order_autocomplete)
     @staff_only()
     async def message_customer(self, interaction: discord.Interaction, order: int, message: str) -> None:
         existing = await orders_q.get_order(self.bot.db, order)
         if not existing:
-            await interaction.response.send_message(embed=embeds.error_embed("Order not found."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Order gak ketemu."), ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
-        embed = embeds.info_embed(f"Message about Order #{order}", message)
+        embed = embeds.info_embed(f"Pesan soal Order #{order}", message)
         sent = await order_actions.send_message_to_customer(self.bot, existing["user_id"], embed, order)
         await interaction.followup.send(
-            embed=embeds.success_embed("Message sent.")
+            embed=embeds.success_embed("Pesan udah dikirim.")
             if sent
-            else embeds.error_embed("Couldn't DM the customer -- they may have DMs disabled."),
+            else embeds.error_embed("Gak bisa DM customer -- mungkin DM-nya lagi ditutup."),
             ephemeral=True,
         )
 
-    @app_commands.command(name="orders", description="View your order history.")
+    @app_commands.command(name="orders", description="Liat riwayat order kamu.")
     @app_commands.guild_only()
     async def orders(self, interaction: discord.Interaction) -> None:
         rows = await orders_q.list_orders_for_user(self.bot.db, interaction.user.id, limit=25)
         if not rows:
             await interaction.response.send_message(
-                embed=embeds.info_embed("Your Orders", "You haven't placed any orders yet."), ephemeral=True
+                embed=embeds.info_embed("Order Kamu", "Kamu belum pernah pesen apa-apa nih."), ephemeral=True
             )
             return
         lines = [
@@ -153,7 +153,7 @@ class OrderCog(commands.Cog):
             for r in rows
         ]
         await interaction.response.send_message(
-            embed=embeds.info_embed("Your Orders", "\n".join(lines)), ephemeral=True
+            embed=embeds.info_embed("Order Kamu", "\n".join(lines)), ephemeral=True
         )
 
 

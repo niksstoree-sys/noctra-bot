@@ -1,27 +1,25 @@
 """
-Relays a customer's DMs to staff for as long as they have an active order
-(from creation all the way through being marked paid and processed, right
-up until it's completed) -- this is what makes "send your payment proof
-here" actually reach the people who need to see it, without ever opening a
-ticket channel, and lets the customer keep messaging staff about an order
-even after it's been marked paid.
+Nerusin DM customer ke staff selama order mereka masih aktif (dari dibuat
+sampe ditandain paid dan diproses, sampe akhirnya completed) -- ini yang
+bikin "kirim bukti bayar kamu di sini" beneran nyampe ke orang yang perlu
+liat, tanpa pernah harus buka channel ticket, dan ngebolehin customer tetep
+chat staff soal order-nya bahkan abis ditandain paid.
 
-Behaviour:
-  * Only DM channels are watched (guild messages are untouched).
-  * If the customer has exactly one active order, the message (text + any
-    attachments) is forwarded straight to the order-log channel, tagged
-    with that order ID and the customer's mention.
-  * If they have more than one, they're asked to pick which order via a
-    Select menu before anything is forwarded -- this is the actual fix for
-    "yang beneran beli yang mana": every forwarded message is unambiguously
-    tied to one specific order.
-  * If they have zero active orders (none yet, or already completed), the
-    bot stays silent here (it isn't a general-purpose DM chatbot). A
-    completed order's "how was it" conversation is handled separately by
-    the review-photo listener, not this one.
-  * A visible confirmation is only sent back when there's an attachment
-    (the proof-of-payment case) to avoid replying to every single message
-    in an ordinary back-and-forth.
+Perilakunya:
+  * Cuma DM channel yang diperhatiin (pesan di guild diabaikan).
+  * Kalau customer punya pas satu order aktif, pesannya (teks + lampiran
+    apapun) langsung diterusin ke channel order-log, ditandain sama order
+    ID itu dan mention customer-nya.
+  * Kalau lebih dari satu, mereka diminta milih order yang mana lewat
+    Select menu dulu sebelum apapun diterusin -- ini fix beneran buat
+    "yang beneran beli yang mana": tiap pesan yang diterusin jelas
+    ke-tag ke satu order spesifik.
+  * Kalau mereka punya nol order aktif (belum ada, atau udah completed),
+    bot diem aja di sini (bukan chatbot DM serbaguna). Obrolan "gimana
+    belanjanya" buat order yang udah completed ditangani terpisah sama
+    listener review-photo, bukan yang ini.
+  * Konfirmasi yang keliatan cuma dikirim balik kalau ada lampiran (kasus
+    bukti bayar) biar gak ngebales tiap pesan di obrolan biasa.
 """
 
 from __future__ import annotations
@@ -42,7 +40,7 @@ class PaymentProofCog(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot or message.guild is not None:
-            return  # only relay DMs from real users
+            return  # cuma nerusin DM dari user asli
 
         db = self.bot.db
         active = await orders_q.list_active_orders_for_user(db, message.author.id)
@@ -53,9 +51,9 @@ class PaymentProofCog(commands.Cog):
 
         if len(active) > 1:
             embed = embeds.info_embed(
-                "Which order is this about?",
-                "You have more than one active order -- pick the right one "
-                "so staff know exactly which order this is for.",
+                "Ini Soal Order yang Mana?",
+                "Kamu punya lebih dari satu order aktif -- pilih yang bener "
+                "biar staff tau ini soal order yang mana.",
             )
             await message.channel.send(
                 embed=embed,
@@ -71,13 +69,13 @@ class PaymentProofCog(commands.Cog):
         if attachment_urls:
             if sent:
                 await message.channel.send(
-                    embed=embeds.success_embed(f"Sent to staff for Order #{order['id']}.")
+                    embed=embeds.success_embed(f"Udah dikirim ke staff buat Order #{order['id']}.")
                 )
             else:
                 await message.channel.send(
                     embed=embeds.error_embed(
-                        "Staff haven't set up an order-log channel yet, so this couldn't be "
-                        "forwarded automatically. Please wait for staff to check your order manually."
+                        "Staff belum atur channel order-log, jadi ini gak bisa diterusin "
+                        "otomatis. Tunggu staff cek order kamu manual ya."
                     )
                 )
 

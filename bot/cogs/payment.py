@@ -1,4 +1,4 @@
-"""Admin commands: /payment"""
+"""Command admin: /payment"""
 
 from __future__ import annotations
 
@@ -13,21 +13,21 @@ from bot.utils.permissions import staff_only
 
 
 class PaymentCog(commands.Cog):
-    """Configure payment methods, instructions, and timeouts."""
+    """Atur metode pembayaran, instruksi, dan timeout."""
 
     payment_group = app_commands.Group(
-        name="payment", description="Manage payment methods.", guild_only=True
+        name="payment", description="Kelola metode pembayaran.", guild_only=True
     )
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @payment_group.command(name="add", description="Add a new payment method.")
+    @payment_group.command(name="add", description="Tambahin metode pembayaran baru.")
     @app_commands.describe(
-        name="Payment method name, e.g. QRIS, Bank Transfer, PayPal, Maybank",
-        instructions="Instructions shown to the customer (e.g. account number, how to pay)",
-        image_url="QR code / payment image shown to the customer (PNG/JPG/WebP), e.g. your QRIS code",
-        timeout_minutes="Minutes before an unpaid order is auto-expired",
+        name="Nama metode pembayaran, misal QRIS, Transfer Bank, PayPal, Maybank",
+        instructions="Instruksi buat customer (misal nomor rekening, cara bayar)",
+        image_url="Gambar QR code / pembayaran buat customer (PNG/JPG/WebP), misal QRIS kamu",
+        timeout_minutes="Menit sebelum order yang belum dibayar otomatis expired",
     )
     @staff_only()
     async def add(
@@ -42,17 +42,17 @@ class PaymentCog(commands.Cog):
             self.bot.db, name, instructions, timeout_minutes, image_url
         )
         await interaction.response.send_message(
-            embed=embeds.success_embed(f"Payment method **{name}** added with ID `{payment_id}`."),
+            embed=embeds.success_embed(f"Metode pembayaran **{name}** berhasil ditambahin dengan ID `{payment_id}`."),
             ephemeral=True,
         )
 
-    @payment_group.command(name="edit", description="Edit a payment method.")
+    @payment_group.command(name="edit", description="Edit metode pembayaran.")
     @app_commands.describe(
-        payment="Payment method to edit",
-        name="New name",
-        instructions="New instructions",
-        image_url="New QR code / payment image URL (PNG/JPG/WebP)",
-        timeout_minutes="New payment timeout in minutes",
+        payment="Metode pembayaran yang mau diedit",
+        name="Nama baru",
+        instructions="Instruksi baru",
+        image_url="URL gambar QR code / pembayaran baru (PNG/JPG/WebP)",
+        timeout_minutes="Timeout pembayaran baru (menit)",
     )
     @app_commands.autocomplete(payment=payment_autocomplete)
     @staff_only()
@@ -67,7 +67,7 @@ class PaymentCog(commands.Cog):
     ) -> None:
         existing = await payments_q.get_payment_method(self.bot.db, payment)
         if not existing:
-            await interaction.response.send_message(embed=embeds.error_embed("Payment method not found."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Metode pembayaran gak ketemu."), ephemeral=True)
             return
         updates = {}
         if name is not None:
@@ -79,39 +79,39 @@ class PaymentCog(commands.Cog):
         if timeout_minutes is not None:
             updates["timeout_minutes"] = timeout_minutes
         await payments_q.update_payment_method(self.bot.db, payment, **updates)
-        await interaction.response.send_message(embed=embeds.success_embed("Payment method updated."), ephemeral=True)
+        await interaction.response.send_message(embed=embeds.success_embed("Metode pembayaran berhasil diupdate."), ephemeral=True)
 
-    @payment_group.command(name="delete", description="Delete a payment method.")
-    @app_commands.describe(payment="Payment method to delete")
+    @payment_group.command(name="delete", description="Hapus metode pembayaran.")
+    @app_commands.describe(payment="Metode pembayaran yang mau dihapus")
     @app_commands.autocomplete(payment=payment_autocomplete)
     @staff_only()
     async def delete(self, interaction: discord.Interaction, payment: int) -> None:
         existing = await payments_q.get_payment_method(self.bot.db, payment)
         if not existing:
-            await interaction.response.send_message(embed=embeds.error_embed("Payment method not found."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Metode pembayaran gak ketemu."), ephemeral=True)
             return
         await payments_q.delete_payment_method(self.bot.db, payment)
         await interaction.response.send_message(
-            embed=embeds.success_embed(f"Payment method **{existing['name']}** deleted."), ephemeral=True
+            embed=embeds.success_embed(f"Metode pembayaran **{existing['name']}** udah dihapus."), ephemeral=True
         )
 
-    @payment_group.command(name="enable", description="Enable a payment method.")
-    @app_commands.describe(payment="Payment method to enable")
+    @payment_group.command(name="enable", description="Aktifin metode pembayaran.")
+    @app_commands.describe(payment="Metode pembayaran yang mau diaktifin")
     @app_commands.autocomplete(payment=payment_autocomplete)
     @staff_only()
     async def enable(self, interaction: discord.Interaction, payment: int) -> None:
         await payments_q.set_payment_enabled(self.bot.db, payment, True)
-        await interaction.response.send_message(embed=embeds.success_embed("Payment method enabled."), ephemeral=True)
+        await interaction.response.send_message(embed=embeds.success_embed("Metode pembayaran udah diaktifin."), ephemeral=True)
 
-    @payment_group.command(name="disable", description="Disable a payment method.")
-    @app_commands.describe(payment="Payment method to disable")
+    @payment_group.command(name="disable", description="Nonaktifin metode pembayaran.")
+    @app_commands.describe(payment="Metode pembayaran yang mau dinonaktifin")
     @app_commands.autocomplete(payment=payment_autocomplete)
     @staff_only()
     async def disable(self, interaction: discord.Interaction, payment: int) -> None:
         await payments_q.set_payment_enabled(self.bot.db, payment, False)
-        await interaction.response.send_message(embed=embeds.success_embed("Payment method disabled."), ephemeral=True)
+        await interaction.response.send_message(embed=embeds.success_embed("Metode pembayaran udah dinonaktifin."), ephemeral=True)
 
-    @payment_group.command(name="list", description="List all payment methods.")
+    @payment_group.command(name="list", description="Liat semua metode pembayaran.")
     @staff_only()
     async def list_payments(self, interaction: discord.Interaction) -> None:
         rows = await payments_q.list_payment_methods(self.bot.db)

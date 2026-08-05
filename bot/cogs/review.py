@@ -1,4 +1,4 @@
-"""User & admin commands: /review"""
+"""Command user & admin: /review"""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ async def _unreviewed_order_autocomplete(
     choices = []
     for r in rows[:25]:
         product = await products_q.get_product(db, r["product_id"])
-        name = product["name"] if product else "Unknown product"
+        name = product["name"] if product else "Produk gak ketemu"
         choices.append(app_commands.Choice(name=f"#{r['id']} -- {name}", value=r["id"]))
     return choices
 
@@ -40,7 +40,7 @@ async def _my_reviewed_order_autocomplete(
     choices = []
     for r in rows[:25]:
         product = await products_q.get_product(db, r["product_id"])
-        name = product["name"] if product else "Unknown product"
+        name = product["name"] if product else "Produk gak ketemu"
         choices.append(app_commands.Choice(name=f"#{r['order_id']} -- {name}", value=r["order_id"]))
     return choices
 
@@ -53,17 +53,17 @@ async def _pending_review_autocomplete(
     choices = []
     for r in rows:
         product = await products_q.get_product(db, r["product_id"])
-        name = product["name"] if product else "Unknown product"
+        name = product["name"] if product else "Produk gak ketemu"
         choices.append(app_commands.Choice(name=f"#{r['id']} -- {name} ({r['rating']}/5)", value=r["id"]))
     return choices
 
 
 class ReviewCog(commands.Cog):
-    """Customer reviews tied to completed, paid orders -- pending admin approval."""
+    """Review produk dari customer yang order-nya udah completed & paid -- nunggu approve staff."""
 
-    review_group = app_commands.Group(name="review", description="Manage product reviews.", guild_only=True)
+    review_group = app_commands.Group(name="review", description="Kelola review produk.", guild_only=True)
     admin_group = app_commands.Group(
-        name="admin", description="Moderate reviews.", parent=review_group
+        name="admin", description="Moderasi review.", parent=review_group
     )
 
     def __init__(self, bot: commands.Bot) -> None:
@@ -77,12 +77,12 @@ class ReviewCog(commands.Cog):
             return None
         return order
 
-    @review_group.command(name="submit", description="Submit a review for a completed order.")
+    @review_group.command(name="submit", description="Kasih review buat order yang udah selesai.")
     @app_commands.describe(
-        order="A completed, paid order of yours that hasn't been reviewed yet",
-        rating="Rating from 1 to 5",
-        review="Your review text",
-        anonymous="Hide your name on the review",
+        order="Order kamu yang udah completed, paid, dan belum direview",
+        rating="Rating dari 1 sampe 5",
+        review="Teks review kamu",
+        anonymous="Sembunyiin nama kamu di review",
     )
     @app_commands.autocomplete(order=_unreviewed_order_autocomplete)
     async def submit(
@@ -97,8 +97,8 @@ class ReviewCog(commands.Cog):
         if not order_row:
             await interaction.response.send_message(
                 embed=embeds.error_embed(
-                    "That order isn't eligible for a review. It must belong to you, be **paid**, "
-                    "and marked **completed** by staff."
+                    "Order itu belum bisa direview. Harus punya kamu, udah **paid**, "
+                    "dan ditandain **completed** sama staff."
                 ),
                 ephemeral=True,
             )
@@ -106,7 +106,7 @@ class ReviewCog(commands.Cog):
         existing = await reviews_q.get_review_by_order(self.bot.db, order)
         if existing:
             await interaction.response.send_message(
-                embed=embeds.error_embed("You've already reviewed this order. Use `/review edit` instead."),
+                embed=embeds.error_embed("Kamu udah pernah review order ini. Pake `/review edit` aja."),
                 ephemeral=True,
             )
             return
@@ -115,13 +115,13 @@ class ReviewCog(commands.Cog):
         )
         await interaction.response.send_message(
             embed=embeds.success_embed(
-                "Thank you! Your review has been submitted and is awaiting staff approval."
+                "Makasih! Review kamu udah dikirim dan lagi nunggu approve staff."
             ),
             ephemeral=True,
         )
 
-    @review_group.command(name="edit", description="Edit your existing review.")
-    @app_commands.describe(order="Order whose review you want to edit", rating="New rating", review="New review text", anonymous="Hide your name")
+    @review_group.command(name="edit", description="Edit review kamu yang udah ada.")
+    @app_commands.describe(order="Order yang review-nya mau kamu edit", rating="Rating baru", review="Teks review baru", anonymous="Sembunyiin nama kamu")
     @app_commands.autocomplete(order=_my_reviewed_order_autocomplete)
     async def edit(
         self,
@@ -133,7 +133,7 @@ class ReviewCog(commands.Cog):
     ) -> None:
         existing = await reviews_q.get_review_by_order(self.bot.db, order)
         if not existing or existing["user_id"] != interaction.user.id:
-            await interaction.response.send_message(embed=embeds.error_embed("Review not found."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Review gak ketemu."), ephemeral=True)
             return
         updates: dict = {"status": "pending"}
         if rating is not None:
@@ -144,80 +144,80 @@ class ReviewCog(commands.Cog):
             updates["anonymous"] = int(anonymous)
         await reviews_q.update_review(self.bot.db, existing["id"], **updates)
         await interaction.response.send_message(
-            embed=embeds.success_embed("Review updated and resubmitted for approval."), ephemeral=True
+            embed=embeds.success_embed("Review udah diupdate dan dikirim ulang buat nunggu approve."), ephemeral=True
         )
 
-    @review_group.command(name="delete", description="Delete your review.")
-    @app_commands.describe(order="Order whose review you want to delete")
+    @review_group.command(name="delete", description="Hapus review kamu.")
+    @app_commands.describe(order="Order yang review-nya mau kamu hapus")
     @app_commands.autocomplete(order=_my_reviewed_order_autocomplete)
     async def delete(self, interaction: discord.Interaction, order: int) -> None:
         existing = await reviews_q.get_review_by_order(self.bot.db, order)
         if not existing or existing["user_id"] != interaction.user.id:
-            await interaction.response.send_message(embed=embeds.error_embed("Review not found."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Review gak ketemu."), ephemeral=True)
             return
         await reviews_q.delete_review(self.bot.db, existing["id"])
-        await interaction.response.send_message(embed=embeds.success_embed("Review deleted."), ephemeral=True)
+        await interaction.response.send_message(embed=embeds.success_embed("Review udah dihapus."), ephemeral=True)
 
-    @review_group.command(name="list", description="View approved reviews and rating summary for a product.")
-    @app_commands.describe(product="Product to view reviews for")
+    @review_group.command(name="list", description="Liat review yang di-approve dan ringkasan rating buat suatu produk.")
+    @app_commands.describe(product="Produk yang mau dilihat review-nya")
     @app_commands.autocomplete(product=product_autocomplete)
     async def list_reviews(self, interaction: discord.Interaction, product: int) -> None:
         product_row = await products_q.get_product(self.bot.db, product)
         if not product_row:
-            await interaction.response.send_message(embed=embeds.error_embed("Product not found."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Produk gak ketemu."), ephemeral=True)
             return
         summary = await reviews_q.get_rating_summary(self.bot.db, product)
         recent = await reviews_q.list_reviews_for_product(self.bot.db, product, status="approved", limit=5)
 
         embed = embeds.rating_distribution_embed(product_row, summary)
         for r in recent:
-            author = "Anonymous" if r["anonymous"] else f"<@{r['user_id']}>"
-            text = r["review_text"] or "*(no written review)*"
+            author = "Anonim" if r["anonymous"] else f"<@{r['user_id']}>"
+            text = r["review_text"] or "*(gak ada review tertulis)*"
             embed.add_field(
-                name=f"{r['rating']}/5 -- {author} -- Verified Purchase",
+                name=f"{r['rating']}/5 -- {author} -- Pembelian Terverifikasi",
                 value=text[:200],
                 inline=False,
             )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    # -- Admin moderation -----------------------------------------------------
+    # -- Moderasi Admin -----------------------------------------------------
 
-    @admin_group.command(name="approve", description="Approve a pending review, making it publicly visible.")
-    @app_commands.describe(review_id="Pending review to approve")
+    @admin_group.command(name="approve", description="Approve review yang pending, bikin dia keliatan publik.")
+    @app_commands.describe(review_id="Review pending yang mau di-approve")
     @app_commands.autocomplete(review_id=_pending_review_autocomplete)
     @staff_only()
     async def approve(self, interaction: discord.Interaction, review_id: int) -> None:
         if not await reviews_q.get_review(self.bot.db, review_id):
-            await interaction.response.send_message(embed=embeds.error_embed("Review not found."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Review gak ketemu."), ephemeral=True)
             return
         await reviews_q.set_review_status(self.bot.db, review_id, "approved")
         posted = await review_actions.post_review_publicly(self.bot, review_id)
-        message = "Review approved."
+        message = "Review udah di-approve."
         if posted:
-            message += " Posted to the public reviews channel."
+            message += " Udah diposting ke channel review publik."
         await interaction.response.send_message(embed=embeds.success_embed(message), ephemeral=True)
 
-    @admin_group.command(name="reject", description="Reject a pending review.")
-    @app_commands.describe(review_id="Pending review to reject")
+    @admin_group.command(name="reject", description="Reject review yang pending.")
+    @app_commands.describe(review_id="Review pending yang mau di-reject")
     @app_commands.autocomplete(review_id=_pending_review_autocomplete)
     @staff_only()
     async def reject(self, interaction: discord.Interaction, review_id: int) -> None:
         await reviews_q.set_review_status(self.bot.db, review_id, "rejected")
-        await interaction.response.send_message(embed=embeds.success_embed("Review rejected."), ephemeral=True)
+        await interaction.response.send_message(embed=embeds.success_embed("Review udah di-reject."), ephemeral=True)
 
-    @admin_group.command(name="hide", description="Hide a previously approved review.")
-    @app_commands.describe(review_id="Review to hide")
+    @admin_group.command(name="hide", description="Sembunyiin review yang sebelumnya udah di-approve.")
+    @app_commands.describe(review_id="Review yang mau disembunyiin")
     @staff_only()
     async def hide(self, interaction: discord.Interaction, review_id: int) -> None:
         await reviews_q.set_review_status(self.bot.db, review_id, "hidden")
-        await interaction.response.send_message(embed=embeds.success_embed("Review hidden."), ephemeral=True)
+        await interaction.response.send_message(embed=embeds.success_embed("Review udah disembunyiin."), ephemeral=True)
 
-    @admin_group.command(name="delete", description="Permanently delete a review.")
-    @app_commands.describe(review_id="Review to delete")
+    @admin_group.command(name="delete", description="Hapus review secara permanen.")
+    @app_commands.describe(review_id="Review yang mau dihapus")
     @staff_only()
     async def admin_delete(self, interaction: discord.Interaction, review_id: int) -> None:
         await reviews_q.delete_review(self.bot.db, review_id)
-        await interaction.response.send_message(embed=embeds.success_embed("Review deleted."), ephemeral=True)
+        await interaction.response.send_message(embed=embeds.success_embed("Review udah dihapus."), ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

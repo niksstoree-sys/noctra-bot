@@ -1,4 +1,4 @@
-"""User commands: /shop, /buy"""
+"""Command user: /shop, /buy"""
 
 from __future__ import annotations
 
@@ -22,30 +22,30 @@ async def _visible_product_autocomplete(
 
 
 class ShopCog(commands.Cog):
-    """Browse the catalogue and purchase products."""
+    """Jelajahin katalog dan beli produk."""
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="shop", description="Browse the NOCTRA store.")
+    @app_commands.command(name="shop", description="Jelajahin toko NOCTRA.")
     @app_commands.guild_only()
     async def shop(self, interaction: discord.Interaction) -> None:
         categories = await categories_q.list_categories(self.bot.db, enabled_only=True)
         embed = embeds.base_embed(
             "NOCTRA STORE",
-            "Select a category below to browse available products.",
+            "Pilih kategori di bawah buat liat produk yang ada.",
             color=COLOR_ACCENT,
         )
         if not categories:
-            embed.description = "The store has no categories available right now. Check back soon."
+            embed.description = "Toko belum ada kategori yang aktif nih. Cek lagi nanti ya."
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         await interaction.response.send_message(
             embed=embed, view=CategoryBrowseView(categories), ephemeral=True
         )
 
-    @app_commands.command(name="buy", description="Buy a product directly.")
-    @app_commands.describe(product="Product you want to purchase")
+    @app_commands.command(name="buy", description="Beli produk langsung.")
+    @app_commands.describe(product="Produk yang mau kamu beli")
     @app_commands.autocomplete(product=_visible_product_autocomplete)
     @app_commands.guild_only()
     async def buy(self, interaction: discord.Interaction, product: int) -> None:
