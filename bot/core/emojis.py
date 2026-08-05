@@ -20,9 +20,9 @@ enak dilihat dari awal.
 
 from __future__ import annotations
 
-EMOJI_SUCCESS = "✅"
-EMOJI_ERROR = "❌"
-EMOJI_INFO = "ℹ️"
+EMOJI_SUCCESS = "<a:b_yes:1534493624564322465>"
+EMOJI_ERROR = "<a:Cross1:1534493341759312083>"
+EMOJI_INFO = "<:9343iconinfo:1534494344000573510>"
 
 # Tambahin di sini kalau butuh lebih banyak, contoh:
 # EMOJI_WARNING = "⚠️"
