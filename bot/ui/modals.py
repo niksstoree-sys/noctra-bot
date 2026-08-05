@@ -1,14 +1,13 @@
 """
-Modal components for NOCTRA.
+Komponen Modal buat NOCTRA.
 
-Modals are used specifically where the set of inputs is only known at
-runtime (the admin-configured dynamic checkout fields) or where a single
-short freeform text response is needed (close/cancel/refund reasons).
-Everything with a fixed, well-typed shape (categories, category types,
-products,
-payment methods) is handled via slash command options instead, which is the
-more idiomatic discord.py pattern for structured CRUD and keeps autocomplete
-available on those commands.
+Modal dipake khusus di tempat yang inputnya cuma ketauan pas runtime
+(dynamic checkout field yang diatur admin) atau butuh satu jawaban teks
+pendek bebas (alasan close/cancel/refund). Semua yang bentuknya udah pasti
+dan jelas tipenya (kategori, category type, produk, metode pembayaran)
+ditangani lewat opsi slash command aja, yang emang pola discord.py yang
+lebih pas buat CRUD terstruktur dan bikin autocomplete tetep jalan di
+command itu.
 """
 
 from __future__ import annotations
@@ -29,7 +28,7 @@ def _style_for(field_row) -> discord.TextStyle:
 
 
 class DynamicFieldsModal(discord.ui.Modal):
-    """One batch (max 5) of admin-defined checkout fields."""
+    """Satu batch (maks 5) checkout field yang diatur admin."""
 
     def __init__(
         self,
@@ -66,13 +65,13 @@ async def collect_dynamic_fields(
     on_complete: Callable[[discord.Interaction, dict], Awaitable[None]],
 ) -> None:
     """
-    Kick off (possibly chained) modal(s) to collect values for `fields`.
+    Mulai (bisa berantai) modal buat ngumpulin value `fields`.
 
-    `on_complete(interaction, {field_id: value})` is awaited once every batch
-    has been submitted. Discord modals cap at 5 text inputs, so fields are
-    split into batches and chained: each modal submission opens the next one
-    as its *initial* response (required by Discord -- you cannot defer and
-    then open a modal later).
+    `on_complete(interaction, {field_id: value})` di-await begitu semua
+    batch udah disubmit. Discord modal maksimal 5 text input, jadi field
+    dipecah jadi beberapa batch dan dirantai: tiap submit modal buka modal
+    berikutnya sebagai respon *awal*-nya (Discord ngewajibin ini -- gak bisa
+    defer terus baru buka modal belakangan).
     """
     batches = [
         fields[i : i + MODAL_BATCH_SIZE] for i in range(0, len(fields), MODAL_BATCH_SIZE)
@@ -84,7 +83,7 @@ async def collect_dynamic_fields(
         next_index = batch_index + 1
         if next_index < len(batches):
             modal = DynamicFieldsModal(
-                title=f"Checkout Information ({next_index + 1}/{len(batches)})",
+                title=f"Info Checkout ({next_index + 1}/{len(batches)})",
                 fields_batch=batches[next_index],
                 on_submit_callback=lambda i, v: handle_batch(next_index, i, v),
             )
@@ -93,7 +92,7 @@ async def collect_dynamic_fields(
             await on_complete(inter, collected)
 
     first_modal = DynamicFieldsModal(
-        title=f"Checkout Information (1/{len(batches)})" if len(batches) > 1 else "Checkout Information",
+        title=f"Info Checkout (1/{len(batches)})" if len(batches) > 1 else "Info Checkout",
         fields_batch=batches[0],
         on_submit_callback=lambda i, v: handle_batch(0, i, v),
     )
@@ -101,16 +100,16 @@ async def collect_dynamic_fields(
 
 
 class ReviewTextModal(discord.ui.Modal):
-    """Final step of the button-only review flow -- the star rating is
-    already chosen via buttons before this opens, so this only asks for the
-    optional written part."""
+    """Langkah terakhir alur review button-only -- rating bintangnya udah
+    dipilih lewat tombol sebelum ini kebuka, jadi ini cuma nanyain bagian
+    teks opsionalnya."""
 
     review_text = discord.ui.TextInput(
-        label="Write a review (optional)",
+        label="Tulis review (opsional)",
         style=discord.TextStyle.paragraph,
         required=False,
         max_length=500,
-        placeholder="Tell others about your experience...",
+        placeholder="Ceritain pengalaman kamu...",
     )
 
     def __init__(
@@ -126,14 +125,14 @@ class ReviewTextModal(discord.ui.Modal):
 
 
 class ReasonModal(discord.ui.Modal):
-    """Reusable single-field modal for close/cancel/refund reasons."""
+    """Modal satu field yang bisa dipake ulang buat alasan close/cancel/refund."""
 
     reason = discord.ui.TextInput(
-        label="Reason",
+        label="Alasan",
         style=discord.TextStyle.paragraph,
         required=False,
         max_length=300,
-        placeholder="Optional -- explain why",
+        placeholder="Opsional -- jelasin kenapa",
     )
 
     def __init__(
@@ -149,16 +148,16 @@ class ReasonModal(discord.ui.Modal):
 
 
 class MessageModal(discord.ui.Modal):
-    """Reusable single required-field modal -- used for the order-log
-    'Reply' button so staff can message a customer by DM without ever
-    typing /order message."""
+    """Modal satu field wajib yang bisa dipake ulang -- dipake buat tombol
+    'Balas' di order-log biar staff bisa DM customer tanpa perlu ngetik
+    /order message."""
 
     message = discord.ui.TextInput(
-        label="Message to customer",
+        label="Pesan ke customer",
         style=discord.TextStyle.paragraph,
         required=True,
         max_length=1000,
-        placeholder="Type your reply here...",
+        placeholder="Ketik balesan kamu di sini...",
     )
 
     def __init__(

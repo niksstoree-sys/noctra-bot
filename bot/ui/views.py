@@ -1,28 +1,29 @@
 """
-Interactive Views for NOCTRA: shop browsing (Category -> Category Type ->
-Product selects), the purchase wizard (dynamic fields -> payment select ->
-order confirmation), persistent ticket control buttons (general support
-only), and the button-only review flow (rating buttons -> optional text
-modal).
+Interactive Views buat NOCTRA: browsing toko (Category -> Category Type ->
+Product select), wizard pembelian (dynamic fields -> payment select ->
+konfirmasi order), tombol kontrol ticket persistent (support umum aja), dan
+alur review button-only (tombol rating -> modal teks opsional).
 
-There is no "variant" concept -- each product under a category type is its
-own fully independent, fully priced item. Dynamic checkout fields live on
-the category type and are automatically shared by every product under it.
+Gak ada konsep "variant" -- tiap produk di bawah category type itu barang
+sendiri yang harganya independen penuh. Dynamic checkout fields nempel di
+category type dan otomatis dishare sama semua produk di bawahnya.
 
-The purchase wizard and review flow are DM-based: after the initial "Buy Now"
-click in a guild channel, every remaining step (dynamic field modals,
-payment select, order confirmation, payment instructions, and later the
-review prompt) happens in the customer's DMs. This makes the whole store
-guild-agnostic by design -- the same catalogue/orders/reviews work no matter
-which server the bot is posted in, since nothing customer-facing depends on
-a per-guild ticket channel. Staff manage orders either via `/order` commands
-or the optional order-log channel (`/settings order_log_channel`).
+Wizard pembelian dan alur review berbasis DM: abis klik "Buy Now" pertama
+kali di channel guild, semua langkah selanjutnya (modal dynamic field,
+payment select, konfirmasi order, instruksi bayar, dan nanti prompt review)
+terjadi di DM customer. Ini bikin seluruh toko guild-agnostic by design --
+katalog/order/review yang sama tetep jalan di server manapun bot ini
+diundang, soalnya gak ada satupun yang customer-facing yang bergantung ke
+channel ticket per-guild. Staff kelola order lewat command `/order` atau
+channel order-log opsional (`/settings order_log_channel`).
 
-Persistent views/items (survive bot restarts):
-  - Static custom_id, registered via `add_view` in setup_hook: ShopPanelView,
-    TicketControlView, TicketClaimedView, TicketReopenView, OpenTicketPanelView.
-  - Dynamic custom_id (order/rating id encoded in the id itself), registered
-    via `add_dynamic_items` in setup_hook: OrderActionButton, ReviewStartButton.
+Persistent views/items (survive restart bot):
+  - Custom_id statis, didaftarin lewat `add_view` di setup_hook:
+    ShopPanelView, TicketControlView, TicketClaimedView, TicketReopenView,
+    OpenTicketPanelView.
+  - Custom_id dinamis (id order/rating ke-encode di id-nya sendiri),
+    didaftarin lewat `add_dynamic_items` di setup_hook: OrderActionButton,
+    ReviewStartButton.
 """
 
 from __future__ import annotations
@@ -51,8 +52,24 @@ from bot.utils.validators import FieldValidationError, validate_field_value
 MAX_SELECT_OPTIONS = 25
 
 
+async def build_join_server_view(db) -> discord.ui.View | None:
+    """Tombol link "Gabung Server" -- ditampilin abis customer selesai
+    kasih review, ngarahin mereka ke server utama toko. Return None kalau
+    link invite-nya belum diatur (/settings main_server_invite), biar
+    caller bisa skip nampilin view sama sekali. Tombol link gak butuh
+    custom_id dan gak persistent -- Discord yang handle klik-nya langsung
+    di sisi client buat buka URL, gak ada interaction yang balik ke bot."""
+    runtime = RuntimeSettings(db)
+    invite_url = await runtime.main_server_invite_url()
+    if not invite_url:
+        return None
+    view = discord.ui.View(timeout=None)
+    view.add_item(discord.ui.Button(label="Gabung Server", style=discord.ButtonStyle.link, url=invite_url))
+    return view
+
+
 # ============================================================================
-# SHOP BROWSING (Category -> Category Type -> Product)
+# BROWSING TOKO (Category -> Category Type -> Product)
 # ============================================================================
 
 class CategorySelect(discord.ui.Select):
@@ -66,7 +83,7 @@ class CategorySelect(discord.ui.Select):
             )
             for cat in categories[:MAX_SELECT_OPTIONS]
         ]
-        super().__init__(placeholder="Browse a category...", options=options, min_values=1, max_values=1)
+        super().__init__(placeholder="Pilih kategori...", options=options, min_values=1, max_values=1)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         db = interaction.client.db  # type: ignore[attr-defined]
@@ -75,11 +92,11 @@ class CategorySelect(discord.ui.Select):
         category_types = await category_types_q.list_category_types(db, category_id=category_id, enabled_only=True)
         embed = embeds.base_embed(
             f"NOCTRA -- {category['emoji'] + ' ' if category['emoji'] else ''}{category['name']}",
-            "Select a type below to see its products.",
+            "Pilih tipe di bawah buat liat produknya.",
             color=COLOR_ACCENT,
         )
         if not category_types:
-            embed.description = "No product types in this category yet."
+            embed.description = "Belum ada tipe produk di kategori ini."
         view = CategoryTypeBrowseView(category, category_types)
         await interaction.response.edit_message(embed=embed, view=view)
 
@@ -101,7 +118,7 @@ class CategoryTypeSelect(discord.ui.Select):
             )
             for ct in category_types[:MAX_SELECT_OPTIONS]
         ]
-        super().__init__(placeholder="Choose a type...", options=options, min_values=1, max_values=1)
+        super().__init__(placeholder="Pilih tipe...", options=options, min_values=1, max_values=1)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         db = interaction.client.db  # type: ignore[attr-defined]
@@ -115,13 +132,13 @@ class CategoryTypeSelect(discord.ui.Select):
 
 class BackToCategoriesButton(discord.ui.Button):
     def __init__(self) -> None:
-        super().__init__(label="Back", style=discord.ButtonStyle.secondary)
+        super().__init__(label="Kembali", style=discord.ButtonStyle.secondary)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         db = interaction.client.db  # type: ignore[attr-defined]
         categories = await categories_q.list_categories(db, enabled_only=True)
         embed = embeds.base_embed(
-            "NOCTRA STORE", "Select a category below to browse available products.", color=COLOR_ACCENT
+            "NOCTRA STORE", "Pilih kategori di bawah buat liat produk yang ada.", color=COLOR_ACCENT
         )
         view = CategoryBrowseView(categories)
         await interaction.response.edit_message(embed=embed, view=view)
@@ -143,7 +160,7 @@ class ProductSelect(discord.ui.Select):
             )
             for p in products[:MAX_SELECT_OPTIONS]
         ]
-        super().__init__(placeholder="View a product...", options=options, min_values=1, max_values=1)
+        super().__init__(placeholder="Liat produk...", options=options, min_values=1, max_values=1)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         db = interaction.client.db  # type: ignore[attr-defined]
@@ -158,7 +175,7 @@ class ProductSelect(discord.ui.Select):
 
 class BackToCategoryTypesButton(discord.ui.Button):
     def __init__(self, category_id: int) -> None:
-        super().__init__(label="Back", style=discord.ButtonStyle.secondary)
+        super().__init__(label="Kembali", style=discord.ButtonStyle.secondary)
         self.category_id = category_id
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -167,7 +184,7 @@ class BackToCategoryTypesButton(discord.ui.Button):
         category_types = await category_types_q.list_category_types(db, category_id=self.category_id, enabled_only=True)
         embed = embeds.base_embed(
             f"NOCTRA -- {category['emoji'] + ' ' if category and category['emoji'] else ''}{category['name'] if category else ''}",
-            "Select a type below to see its products.",
+            "Pilih tipe di bawah buat liat produknya.",
             color=COLOR_ACCENT,
         )
         view = CategoryTypeBrowseView(category, category_types)
@@ -184,7 +201,7 @@ class ProductBrowseView(discord.ui.View):
 
 class BuyButton(discord.ui.Button):
     def __init__(self, product) -> None:
-        super().__init__(label="Buy Now", style=discord.ButtonStyle.success)
+        super().__init__(label="Beli Sekarang", style=discord.ButtonStyle.success)
         self.product = product
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -199,27 +216,28 @@ class ProductDetailView(discord.ui.View):
 
 
 class ShopPanelView(discord.ui.View):
-    """Persistent panel posted once via /settings shop_panel. Customers click
-    this instead of ever running /shop -- fully button-driven browsing.
+    """Panel persistent yang diposting sekali lewat /settings shop_panel.
+    Customer klik ini daripada jalanin /shop -- browsing sepenuhnya lewat
+    tombol.
 
-    The custom_id stays fixed ("noctra:shop:browse") so this keeps working
-    after a bot restart no matter what label staff chose when posting it --
-    only the button's `custom_id` matters for re-attaching to the persistent
-    template registered in setup_hook, not its visible label."""
+    custom_id-nya tetep sama ("noctra:shop:browse") jadi ini tetep jalan
+    abis bot restart gak peduli label apa yang staff pilih pas posting --
+    yang penting cuma `custom_id` tombolnya buat nempel balik ke template
+    persistent yang didaftarin di setup_hook, bukan label yang keliatan."""
 
-    def __init__(self, button_label: str = "Browse Store") -> None:
+    def __init__(self, button_label: str = "Jelajahi Toko") -> None:
         super().__init__(timeout=None)
         self.browse.label = button_label[:80]
 
-    @discord.ui.button(label="Browse Store", style=discord.ButtonStyle.success, custom_id="noctra:shop:browse")
+    @discord.ui.button(label="Jelajahi Toko", style=discord.ButtonStyle.secondary, custom_id="noctra:shop:browse")
     async def browse(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         db = interaction.client.db  # type: ignore[attr-defined]
         categories = await categories_q.list_categories(db, enabled_only=True)
         embed = embeds.base_embed(
-            "NOCTRA STORE", "Select a category below to browse available products.", color=COLOR_ACCENT
+            "NOCTRA STORE", "Pilih kategori di bawah buat liat produk yang ada.", color=COLOR_ACCENT
         )
         if not categories:
-            embed.description = "The store has no categories available right now. Check back soon."
+            embed.description = "Toko belum ada kategori yang aktif nih. Cek lagi nanti ya."
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         await interaction.response.send_message(
@@ -228,7 +246,7 @@ class ShopPanelView(discord.ui.View):
 
 
 # ============================================================================
-# PURCHASE WIZARD (DM-based)
+# WIZARD PEMBELIAN (berbasis DM)
 # ============================================================================
 
 async def start_purchase(interaction: discord.Interaction, product_id: int) -> None:
@@ -236,60 +254,59 @@ async def start_purchase(interaction: discord.Interaction, product_id: int) -> N
     product = await products_q.get_product(db, product_id)
     if not product or not product["visible"]:
         await interaction.response.send_message(
-            embed=embeds.error_embed("This product is not available."), ephemeral=True
+            embed=embeds.error_embed("Produk ini lagi gak tersedia."), ephemeral=True
         )
         return
     if product["stock_type"] == "manual" and product["stock_quantity"] <= 0:
         await interaction.response.send_message(
-            embed=embeds.error_embed("This product is currently out of stock."), ephemeral=True
+            embed=embeds.error_embed("Stok produk ini lagi abis."), ephemeral=True
         )
         return
 
     dm_channel = await interaction.user.create_dm()
     embed = embeds.info_embed(
-        "Continue Your Order", f"Click below to continue ordering **{product['name']}**."
+        "Lanjutin Order Kamu", f"Klik di bawah buat lanjutin pesen **{product['name']}**."
     )
     try:
         await dm_channel.send(embed=embed, view=ContinueOrderView(product))
     except discord.Forbidden:
         await interaction.response.send_message(
             embed=embeds.error_embed(
-                "I couldn't send you a DM to continue checkout. Please enable "
-                '"Allow direct messages from server members" in your Privacy Settings '
-                "for this server and try again."
+                "Gak bisa kirim DM ke kamu buat lanjutin checkout. Aktifin dulu "
+                '"Allow direct messages from server members" di Privacy Settings '
+                "server ini, terus coba lagi ya."
             ),
             ephemeral=True,
         )
         return
 
     await interaction.response.send_message(
-        embed=embeds.success_embed("Check your DMs to continue your order."), ephemeral=True
+        embed=embeds.success_embed("Cek DM kamu buat lanjutin order ya."), ephemeral=True
     )
 
 
 async def _delete_source_message(interaction: discord.Interaction) -> None:
-    """Deletes the DM message a button/select was attached to, once its job
-    is done -- this is what stops 'Continue Order' / 'Select a Payment
-    Method' prompts from piling up regardless of whether the order is ever
-    completed (the order summary itself is cleaned up separately, on
-    completion, via the order_dm_messages tracking instead)."""
+    """Hapus pesan DM yang nempel di tombol/select ini, begitu tugasnya
+    kelar -- ini yang bikin prompt "Lanjutin Order" / "Pilih Metode
+    Pembayaran" gak numpuk terus, gak peduli order-nya kelar atau enggak
+    (ringkasan order sendiri dibersihin terpisah, pas selesai, lewat
+    tracking order_dm_messages)."""
     message = interaction.message
     if message is None:
         return
     try:
         await message.delete()
     except discord.HTTPException:
-        pass  # already gone, or somehow not deletable -- not worth surfacing
+        pass  # udah ilang, atau entah kenapa gak bisa dihapus -- gapapa diabaikan
 
 
 class ContinueOrderButton(discord.ui.Button):
-    """Gives the customer something to click in their DM so a Modal can be
-    opened for checkout fields, since Discord only allows opening a Modal in
-    response to a component interaction, never from a plain bot-sent
-    message."""
+    """Ngasih customer sesuatu buat diklik di DM mereka biar Modal bisa
+    dibuka buat checkout fields, soalnya Discord cuma ngebolehin buka Modal
+    sebagai respon ke interaction komponen, gak bisa dari pesan bot biasa."""
 
     def __init__(self, product) -> None:
-        super().__init__(label="Continue Order", style=discord.ButtonStyle.success)
+        super().__init__(label="Lanjutin Order", style=discord.ButtonStyle.success)
         self.product = product
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -349,7 +366,7 @@ async def proceed_to_payment(interaction: discord.Interaction, product, field_va
     if not methods:
         await interaction.followup.send(
             embed=embeds.error_embed(
-                "No payment methods are currently configured. Please contact staff."
+                "Belum ada metode pembayaran yang diatur. Hubungin staff ya."
             ),
             ephemeral=False,
         )
@@ -359,7 +376,7 @@ async def proceed_to_payment(interaction: discord.Interaction, product, field_va
         await finalize_order(interaction, product, field_values, methods[0])
         return
 
-    embed = embeds.info_embed("Select a Payment Method", "Choose how you would like to pay.")
+    embed = embeds.info_embed("Pilih Metode Pembayaran", "Pilih cara kamu mau bayar.")
     view = PaymentSelectView(product, field_values, methods)
     await interaction.followup.send(embed=embed, view=view, ephemeral=False)
 
@@ -373,7 +390,7 @@ class PaymentSelect(discord.ui.Select):
             discord.SelectOption(label=m["name"][:100], value=str(m["id"]))
             for m in methods[:MAX_SELECT_OPTIONS]
         ]
-        super().__init__(placeholder="Choose a payment method...", options=options, min_values=1, max_values=1)
+        super().__init__(placeholder="Pilih metode pembayaran...", options=options, min_values=1, max_values=1)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         method = self.method_map[self.values[0]]
@@ -399,7 +416,7 @@ async def finalize_order(interaction: discord.Interaction, product, field_values
         fresh = await products_q.get_product(db, product["id"])
         if fresh["stock_quantity"] <= 0:
             await interaction.followup.send(
-                embed=embeds.error_embed("This product just went out of stock."), ephemeral=False
+                embed=embeds.error_embed("Yah, produk ini baru aja abis stoknya."), ephemeral=False
             )
             return
         await products_q.adjust_stock(db, product["id"], -1)
@@ -427,22 +444,22 @@ async def finalize_order(interaction: discord.Interaction, product, field_values
     if payment["instructions"] or payment["image_url"]:
         reply_embeds.append(
             embeds.info_embed(
-                f"Payment -- {payment['name']}",
-                payment["instructions"] or "Scan the QR code below to pay.",
+                f"Pembayaran -- {payment['name']}",
+                payment["instructions"] or "Scan QR code di bawah buat bayar.",
                 image_url=payment["image_url"],
             )
         )
     reply_embeds.append(
         embeds.info_embed(
-            "Already Paid?",
-            "Once you've paid, send your payment proof (a screenshot works great) "
-            "right here in this DM -- it gets forwarded to staff automatically, "
-            "tagged with this order number, so it's never mixed up with anyone else's.",
+            "Udah Bayar?",
+            "Kalau udah bayar, kirim bukti bayarnya (screenshot juga oke) "
+            "langsung di DM ini -- bakal otomatis diterusin ke staff, "
+            "ditandain sama nomor order ini, jadi gak bakal ketuker sama punya orang lain.",
         )
     )
 
     sent_message = await interaction.followup.send(
-        content="Your order has been created! Here are the details:",
+        content="Order kamu udah dibuat! Ini detailnya:",
         embeds=reply_embeds,
         ephemeral=False,
         wait=True,
@@ -450,10 +467,9 @@ async def finalize_order(interaction: discord.Interaction, product, field_values
     if sent_message is not None:
         await orders_q.add_dm_message(db, order_id, sent_message.channel.id, sent_message.id)
 
-    # Let staff know via the order-log channel, if one is configured. This
-    # works across every server the bot is in, since the channel is a fixed
-    # bot-wide object -- it doesn't have to live in the guild the customer
-    # bought from.
+    # Kabarin staff lewat channel order-log, kalau diatur. Ini jalan di
+    # server manapun bot ada, soalnya channel-nya objek tetap bot-wide --
+    # gak harus di guild yang sama tempat customer belanja.
     runtime = RuntimeSettings(db)
     log_channel_id = await runtime.order_log_channel_id()
     if log_channel_id:
@@ -468,91 +484,91 @@ async def finalize_order(interaction: discord.Interaction, product, field_values
             try:
                 await log_channel.send(embed=staff_embed, view=staff_view)
             except discord.HTTPException:
-                logger.exception("Failed to post order #%s to the order-log channel.", order_id)
+                logger.exception("Gagal posting order #%s ke channel order-log.", order_id)
 
 # ============================================================================
-# TICKET CONTROLS (persistent)
+# KONTROL TICKET (persistent)
 # ============================================================================
 
 def _with_claim_field(embed: discord.Embed, claimant_mention: str | None) -> discord.Embed:
-    """Returns a copy of `embed` with its "Claimed By" field set (or
-    removed, when `claimant_mention` is None) -- shared by the claim/unclaim
-    button callbacks so the ticket message always reflects who's currently
-    handling it."""
+    """Return salinan `embed` dengan field "Diambil Oleh" diset (atau
+    dihapus, kalau `claimant_mention` None) -- dipake bareng sama callback
+    tombol claim/unclaim biar pesan ticket selalu nunjukin siapa yang lagi
+    megang."""
     new_embed = embed.copy()
     for index, field in enumerate(new_embed.fields):
-        if field.name == "Claimed By":
+        if field.name == "Diambil Oleh":
             new_embed.remove_field(index)
             break
     if claimant_mention:
-        new_embed.add_field(name="Claimed By", value=claimant_mention, inline=True)
+        new_embed.add_field(name="Diambil Oleh", value=claimant_mention, inline=True)
     return new_embed
 
 
 def _source_embed(interaction: discord.Interaction) -> discord.Embed:
-    """The embed currently on the ticket message this button lives on, with
-    a safe fallback in the unlikely case the message somehow has none."""
+    """Embed yang lagi nempel di pesan ticket tempat tombol ini berada,
+    dengan fallback aman kalau-kalau pesannya somehow gak punya embed."""
     if interaction.message and interaction.message.embeds:
         return interaction.message.embeds[0]
     return embeds.ticket_welcome_embed()
 
 
 async def _handle_ticket_close(interaction: discord.Interaction) -> None:
-    """Shared by both TicketControlView and TicketClaimedView's Close Ticket
-    button -- claimed or not, closing works the same way."""
+    """Dipake bareng sama tombol Close Ticket di TicketControlView dan
+    TicketClaimedView -- diambil atau enggak, cara nutupnya sama aja."""
     ticket = await tickets_q.get_ticket_by_channel(interaction.client.db, interaction.channel.id)  # type: ignore[attr-defined]
     if not ticket:
-        await interaction.response.send_message(embed=embeds.error_embed("This is not a ticket channel."), ephemeral=True)
+        await interaction.response.send_message(embed=embeds.error_embed("Ini bukan channel ticket."), ephemeral=True)
         return
     if not (await is_staff(interaction) or interaction.user.id == ticket["user_id"]):
         await interaction.response.send_message(
-            embed=embeds.error_embed("Only staff or the ticket owner can close this ticket."), ephemeral=True
+            embed=embeds.error_embed("Cuma staff atau pemilik ticket yang bisa nutup ticket ini."), ephemeral=True
         )
         return
 
     async def on_reason(inter: discord.Interaction, reason: str) -> None:
         await inter.response.defer(ephemeral=True)
         await ticket_actions.close_ticket(inter.client, inter.channel, str(inter.user), reason or None)
-        await inter.followup.send(embed=embeds.success_embed("Ticket closed."), ephemeral=True)
+        await inter.followup.send(embed=embeds.success_embed("Ticket udah ditutup."), ephemeral=True)
 
-    await interaction.response.send_modal(ReasonModal("Close Ticket", on_reason))
+    await interaction.response.send_modal(ReasonModal("Tutup Ticket", on_reason))
 
 
 class TicketDeleteConfirmView(discord.ui.View):
-    """A short-lived (non-persistent) confirmation step for the Delete
-    Channel button -- deleting a channel is permanent and can't be undone,
-    so this makes sure a staff member meant to click it before it happens."""
+    """Konfirmasi sesaat (gak persistent) buat tombol Hapus Channel --
+    ngehapus channel itu permanen dan gak bisa di-undo, jadi ini mastiin
+    staff emang niat klik sebelum kejadian."""
 
     def __init__(self, channel_id: int) -> None:
         super().__init__(timeout=20)
         self.channel_id = channel_id
 
-    @discord.ui.button(label="Yes, Delete Permanently", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Ya, Hapus Permanen", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         channel = interaction.client.get_channel(self.channel_id)  # type: ignore[attr-defined]
         if isinstance(channel, discord.TextChannel):
             try:
-                await channel.delete(reason=f"Ticket deleted by {interaction.user}")
+                await channel.delete(reason=f"Ticket dihapus sama {interaction.user}")
             except discord.HTTPException:
                 await interaction.response.edit_message(
-                    embed=embeds.error_embed("Failed to delete the channel -- check my permissions."), view=None
+                    embed=embeds.error_embed("Gagal hapus channel -- cek permission bot ya."), view=None
                 )
                 return
         else:
             await interaction.response.edit_message(
-                embed=embeds.error_embed("Channel is already gone."), view=None
+                embed=embeds.error_embed("Channel udah gak ada."), view=None
             )
             return
-        # The channel itself is gone by this point, so there's nothing left
-        # to edit a response into -- this message only reaches the staff
-        # member's own ephemeral interaction, which Discord keeps around
-        # even after the channel disappears.
-        await interaction.response.edit_message(embed=embeds.success_embed("Channel deleted."), view=None)
+        # Channel-nya udah ilang di titik ini, jadi gak ada lagi yang bisa
+        # di-edit -- pesan ini cuma nyampe ke interaction ephemeral staff
+        # itu sendiri, yang tetep disimpen Discord walau channel-nya udah
+        # ilang.
+        await interaction.response.edit_message(embed=embeds.success_embed("Channel udah dihapus."), view=None)
         self.stop()
 
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Batal", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.edit_message(embed=embeds.info_embed("Cancelled", "Channel was not deleted."), view=None)
+        await interaction.response.edit_message(embed=embeds.info_embed("Dibatalin", "Channel gak jadi dihapus."), view=None)
         self.stop()
 
 
@@ -560,29 +576,28 @@ class TicketReopenView(discord.ui.View):
     def __init__(self) -> None:
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Reopen Ticket", style=discord.ButtonStyle.primary, custom_id="noctra:ticket:reopen")
+    @discord.ui.button(label="Buka Lagi Ticket", style=discord.ButtonStyle.primary, custom_id="noctra:ticket:reopen")
     async def reopen(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await is_staff(interaction):
             await interaction.response.send_message(
-                embed=embeds.error_embed("Only staff can reopen a ticket."), ephemeral=True
+                embed=embeds.error_embed("Cuma staff yang bisa buka lagi ticket."), ephemeral=True
             )
             return
         await interaction.response.defer(ephemeral=True)
         await ticket_actions.reopen_ticket(interaction.client, interaction.channel, str(interaction.user))
-        await interaction.followup.send(embed=embeds.success_embed("Ticket reopened."), ephemeral=True)
+        await interaction.followup.send(embed=embeds.success_embed("Ticket udah dibuka lagi."), ephemeral=True)
 
-    @discord.ui.button(label="Delete Channel", style=discord.ButtonStyle.danger, custom_id="noctra:ticket:delete")
+    @discord.ui.button(label="Hapus Channel", style=discord.ButtonStyle.danger, custom_id="noctra:ticket:delete")
     async def delete_channel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await is_staff(interaction):
             await interaction.response.send_message(
-                embed=embeds.error_embed("Only staff can delete a ticket channel."), ephemeral=True
+                embed=embeds.error_embed("Cuma staff yang bisa hapus channel ticket."), ephemeral=True
             )
             return
         await interaction.response.send_message(
             embed=embeds.error_embed(
-                "This permanently deletes this channel. The transcript has already been logged "
-                "(if a log channel is configured), but the channel itself cannot be recovered. "
-                "Are you sure?"
+                "Ini bakal hapus channel ini secara permanen. Transcript-nya udah kesimpen "
+                "(kalau log channel diatur), tapi channel-nya sendiri gak bisa balik lagi. Yakin?"
             ),
             view=TicketDeleteConfirmView(interaction.channel.id),
             ephemeral=True,
@@ -593,33 +608,32 @@ ticket_actions._ReopenViewRef.set(TicketReopenView())
 
 
 class TicketControlView(discord.ui.View):
-    """Attached to general support tickets only -- order-specific actions
-    (Mark Paid/Completed/Cancel/Refund) now live on OrderActionButton in the
-    order-log channel and/or the /order commands, since orders no longer
-    create a per-order ticket channel (see module docstring).
+    """Nempel di ticket support umum aja -- aksi khusus order (Mark
+    Paid/Completed/Cancel/Refund) sekarang ada di OrderActionButton di
+    channel order-log dan/atau command /order, soalnya order gak lagi bikin
+    channel ticket per-order (lihat docstring module).
 
-    This is the *unclaimed* state. Once a staff member taps Claim, the
-    message switches to TicketClaimedView instead -- see the Claim button
-    callback below."""
+    Ini state *belum diambil*. Begitu staff klik Claim, pesannya ganti ke
+    TicketClaimedView -- lihat callback tombol Claim di bawah."""
 
     def __init__(self) -> None:
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.primary, custom_id="noctra:ticket:claim")
+    @discord.ui.button(label="Ambil Ticket", style=discord.ButtonStyle.primary, custom_id="noctra:ticket:claim")
     async def claim(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await is_staff(interaction):
             await interaction.response.send_message(
-                embed=embeds.error_embed("Only staff can claim a ticket."), ephemeral=True
+                embed=embeds.error_embed("Cuma staff yang bisa ngambil ticket."), ephemeral=True
             )
             return
         db = interaction.client.db  # type: ignore[attr-defined]
         ticket = await tickets_q.get_ticket_by_channel(db, interaction.channel.id)
         if not ticket:
-            await interaction.response.send_message(embed=embeds.error_embed("This is not a ticket channel."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Ini bukan channel ticket."), ephemeral=True)
             return
         if ticket["claimed_by"]:
             await interaction.response.send_message(
-                embed=embeds.error_embed(f"This ticket is already claimed by <@{ticket['claimed_by']}>."),
+                embed=embeds.error_embed(f"Ticket ini udah diambil sama <@{ticket['claimed_by']}>."),
                 ephemeral=True,
             )
             return
@@ -628,27 +642,27 @@ class TicketControlView(discord.ui.View):
         new_embed = _with_claim_field(_source_embed(interaction), interaction.user.mention)
         await interaction.response.edit_message(embed=new_embed, view=TicketClaimedView())
         await interaction.followup.send(
-            embed=embeds.success_embed(f"Ticket claimed by {interaction.user.mention}."), ephemeral=True
+            embed=embeds.success_embed(f"Ticket udah diambil sama {interaction.user.mention}."), ephemeral=True
         )
 
-    @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.secondary, custom_id="noctra:ticket:close")
+    @discord.ui.button(label="Tutup Ticket", style=discord.ButtonStyle.secondary, custom_id="noctra:ticket:close")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await _handle_ticket_close(interaction)
 
 
 class TicketClaimedView(discord.ui.View):
-    """The *claimed* state -- shown after a staff member taps Claim Ticket.
-    Swaps Claim for Unclaim; Close Ticket behaves identically either way."""
+    """State *udah diambil* -- muncul abis staff klik Claim Ticket. Tombol
+    Claim ganti jadi Unclaim; tombol Close Ticket kerjanya sama aja."""
 
     def __init__(self) -> None:
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Unclaim", style=discord.ButtonStyle.secondary, custom_id="noctra:ticket:unclaim")
+    @discord.ui.button(label="Lepas Ticket", style=discord.ButtonStyle.secondary, custom_id="noctra:ticket:unclaim")
     async def unclaim(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         db = interaction.client.db  # type: ignore[attr-defined]
         ticket = await tickets_q.get_ticket_by_channel(db, interaction.channel.id)
         if not ticket:
-            await interaction.response.send_message(embed=embeds.error_embed("This is not a ticket channel."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Ini bukan channel ticket."), ephemeral=True)
             return
 
         is_claimant = ticket["claimed_by"] == interaction.user.id
@@ -656,7 +670,7 @@ class TicketClaimedView(discord.ui.View):
         if not (is_claimant or is_admin):
             await interaction.response.send_message(
                 embed=embeds.error_embed(
-                    "Only the staff member who claimed this ticket (or an admin) can unclaim it."
+                    "Cuma staff yang ngambil ticket ini (atau admin) yang bisa lepas ticket ini."
                 ),
                 ephemeral=True,
             )
@@ -665,32 +679,33 @@ class TicketClaimedView(discord.ui.View):
         await tickets_q.set_ticket_claim(db, interaction.channel.id, None)
         new_embed = _with_claim_field(_source_embed(interaction), None)
         await interaction.response.edit_message(embed=new_embed, view=TicketControlView())
-        await interaction.followup.send(embed=embeds.success_embed("Ticket unclaimed."), ephemeral=True)
+        await interaction.followup.send(embed=embeds.success_embed("Ticket udah dilepas."), ephemeral=True)
 
-    @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.secondary, custom_id="noctra:ticket:close_claimed")
+    @discord.ui.button(label="Tutup Ticket", style=discord.ButtonStyle.secondary, custom_id="noctra:ticket:close_claimed")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await _handle_ticket_close(interaction)
 
 
 # ============================================================================
-# ORDER ACTIONS (persistent, dynamic -- posted in the order-log channel)
+# AKSI ORDER (persistent, dinamis -- diposting di channel order-log)
 # ============================================================================
 
 class OrderActionButton(
     discord.ui.DynamicItem[discord.ui.Button],
     template=r"noctra:order:(?P<action>mark_paid|mark_completed|cancel|refund):(?P<order_id>[0-9]+)",
 ):
-    """A staff control button whose order ID is encoded directly in its
-    custom_id. Unlike a normal persistent View (one fixed custom_id shared by
-    every message), this lets every order get its own working Mark Paid /
-    Mark Completed / Cancel / Refund buttons in the shared order-log channel,
-    and they keep working after a bot restart with no extra bookkeeping --
-    discord.py reconstructs the button from the custom_id alone."""
+    """Tombol kontrol staff yang order ID-nya ke-encode langsung di
+    custom_id-nya. Beda sama persistent View biasa (satu custom_id tetap
+    dipake bareng di semua pesan), ini bikin tiap order dapet tombol Mark
+    Paid / Mark Completed / Cancel / Refund sendiri-sendiri yang jalan di
+    channel order-log bareng, dan tetep jalan abis bot restart tanpa
+    bookkeeping ekstra -- discord.py rekonstruksi tombolnya dari custom_id
+    doang."""
 
     LABELS = {
-        "mark_paid": "Mark Paid",
-        "mark_completed": "Mark Completed",
-        "cancel": "Cancel",
+        "mark_paid": "Tandain Lunas",
+        "mark_completed": "Tandain Selesai",
+        "cancel": "Batalin",
         "refund": "Refund",
     }
     STYLES = {
@@ -717,7 +732,7 @@ class OrderActionButton(
 
     async def callback(self, interaction: discord.Interaction) -> None:
         if not await is_staff(interaction):
-            await interaction.response.send_message(embed=embeds.error_embed("Staff only."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Khusus staff."), ephemeral=True)
             return
 
         if self.action in ("mark_paid", "mark_completed"):
@@ -741,7 +756,7 @@ class OrderActionButton(
                 embed=embeds.success_embed(message) if ok else embeds.error_embed(message), ephemeral=True
             )
 
-        title = "Cancel Order" if action == "cancel" else "Refund Order"
+        title = "Batalin Order" if action == "cancel" else "Refund Order"
         await interaction.response.send_modal(ReasonModal(title, on_reason))
 
 
@@ -749,15 +764,15 @@ class ReplyButton(
     discord.ui.DynamicItem[discord.ui.Button],
     template=r"noctra:order:reply:(?P<order_id>[0-9]+)",
 ):
-    """Lets staff message a customer by DM in one tap -- opens a modal to
-    type the reply right there in the order-log channel or next to a
-    forwarded payment-proof message, instead of typing /order message every
-    time. Same restart-safe custom_id trick as OrderActionButton."""
+    """Ngasih staff cara balesin DM customer sekali klik -- buka modal buat
+    ngetik balesan langsung di channel order-log atau di samping pesan
+    bukti bayar yang diterusin, gak perlu ngetik /order message tiap kali.
+    Trik custom_id restart-safe sama kayak OrderActionButton."""
 
     def __init__(self, order_id: int) -> None:
         super().__init__(
             discord.ui.Button(
-                label="Reply",
+                label="Balas",
                 style=discord.ButtonStyle.secondary,
                 custom_id=f"noctra:order:reply:{order_id}",
             )
@@ -770,7 +785,7 @@ class ReplyButton(
 
     async def callback(self, interaction: discord.Interaction) -> None:
         if not await is_staff(interaction):
-            await interaction.response.send_message(embed=embeds.error_embed("Staff only."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Khusus staff."), ephemeral=True)
             return
 
         order_id = self.order_id
@@ -779,30 +794,30 @@ class ReplyButton(
             db = inter.client.db  # type: ignore[attr-defined]
             order = await orders_q.get_order(db, order_id)
             if not order:
-                await inter.response.send_message(embed=embeds.error_embed("Order not found."), ephemeral=True)
+                await inter.response.send_message(embed=embeds.error_embed("Order gak ketemu."), ephemeral=True)
                 return
-            embed = embeds.info_embed(f"Message about Order #{order_id}", text)
+            embed = embeds.info_embed(f"Pesan soal Order #{order_id}", text)
             sent = await order_actions.send_message_to_customer(inter.client, order["user_id"], embed, order_id)
             await inter.response.send_message(
-                embed=embeds.success_embed("Message sent.")
+                embed=embeds.success_embed("Pesan udah dikirim.")
                 if sent
-                else embeds.error_embed("Couldn't DM the customer -- they may have DMs disabled."),
+                else embeds.error_embed("Gak bisa DM customer -- mungkin DM-nya lagi ditutup."),
                 ephemeral=True,
             )
 
-        await interaction.response.send_modal(MessageModal(f"Reply -- Order #{order_id}", on_message))
+        await interaction.response.send_modal(MessageModal(f"Balas -- Order #{order_id}", on_message))
 
 
 # ============================================================================
-# SUPPORT TICKET PANEL (persistent)
+# PANEL SUPPORT TICKET (persistent)
 # ============================================================================
 
 class OpenTicketPanelView(discord.ui.View):
-    def __init__(self, button_label: str = "Open Ticket") -> None:
+    def __init__(self, button_label: str = "Buka Ticket") -> None:
         super().__init__(timeout=None)
         self.open_ticket.label = button_label[:80]
 
-    @discord.ui.button(label="Open Ticket", style=discord.ButtonStyle.primary, custom_id="noctra:ticket:open_support")
+    @discord.ui.button(label="Buka Ticket", style=discord.ButtonStyle.secondary, custom_id="noctra:ticket:open_support")
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
         channel = await ticket_actions.create_ticket_channel(
@@ -814,12 +829,12 @@ class OpenTicketPanelView(discord.ui.View):
             view=TicketControlView(),
         )
         await interaction.followup.send(
-            embed=embeds.success_embed(f"Your ticket has been created: {channel.mention}"), ephemeral=True
+            embed=embeds.success_embed(f"Ticket kamu udah dibuat: {channel.mention}"), ephemeral=True
         )
 
 
 # ============================================================================
-# REVIEW FLOW (button-only -- no /review submit needed)
+# ALUR REVIEW (button-only -- gak perlu /review submit)
 # ============================================================================
 
 class RatingButton(discord.ui.Button):
@@ -838,17 +853,17 @@ class RatingButton(discord.ui.Button):
             order = await orders_q.get_order(db, order_id)
             if not order or order["user_id"] != inter.user.id:
                 await inter.response.send_message(
-                    embed=embeds.error_embed("This review prompt isn't for you."), ephemeral=True
+                    embed=embeds.error_embed("Prompt ini bukan buat kamu."), ephemeral=True
                 )
                 return
             if order["status"] != "completed" or order["payment_status"] != "paid":
                 await inter.response.send_message(
-                    embed=embeds.error_embed("This order is no longer eligible for a review."), ephemeral=True
+                    embed=embeds.error_embed("Order ini udah gak bisa direview lagi."), ephemeral=True
                 )
                 return
             if await reviews_q.get_review_by_order(db, order_id):
                 await inter.response.send_message(
-                    embed=embeds.error_embed("You've already reviewed this order."), ephemeral=True
+                    embed=embeds.error_embed("Kamu udah pernah review order ini."), ephemeral=True
                 )
                 return
 
@@ -856,22 +871,22 @@ class RatingButton(discord.ui.Button):
                 db, order_id, order["product_id"], inter.user.id, rating, text or None, anonymous
             )
 
-            # The original "How was your purchase?" prompt has done its job
-            # now -- clear it (and any stray staff reply messages) before
-            # asking about a photo, so that doesn't sit there stale too.
+            # Prompt "Gimana Belanjanya?" yang awal udah kelar tugasnya --
+            # bersihin (dan pesan balesan staff yang nyasar) sebelum nanya
+            # soal foto, biar itu juga gak numpuk basi.
             await order_actions.cleanup_dm_messages(inter.client, order_id)
 
-            # Discord Modals only support text fields -- there is no way to
-            # receive a file upload through one. So instead of cramming a
-            # URL field in there, the rating+text modal stays text-only and
-            # photo attachment becomes its own short follow-up step: ask the
-            # customer to just send the image as a normal DM message.
+            # Discord Modal cuma dukung field teks -- gak ada cara nerima
+            # upload file lewat situ. Jadi daripada maksain field URL di
+            # modal rating+teks, attachment foto jadi langkah lanjutan
+            # sendiri yang pendek: minta customer kirim aja gambarnya kayak
+            # pesan DM biasa.
             await reviews_q.set_awaiting_photo(db, review_id, True)
             prompt_embed = embeds.info_embed(
-                "Add a Photo? (Optional)",
-                "Got a screenshot to go with your review? Just send it here as a "
-                "regular message -- no links needed. Or tap Skip to finish "
-                "without one.",
+                "Mau Tambahin Foto? (Opsional)",
+                "Punya screenshot buat nemenin review kamu? Kirim aja di sini "
+                "kayak chat biasa -- gak perlu link. Atau klik Lewati buat "
+                "selesai tanpa foto.",
             )
             await inter.response.send_message(
                 embed=prompt_embed, view=PhotoPromptView(review_id), ephemeral=False
@@ -879,12 +894,12 @@ class RatingButton(discord.ui.Button):
             sent = await inter.original_response()
             await orders_q.add_dm_message(db, order_id, sent.channel.id, sent.id)
 
-        await interaction.response.send_modal(ReviewTextModal(f"Rate {rating}/5 -- Write a Review", on_text))
+        await interaction.response.send_modal(ReviewTextModal(f"Kasih Rating {rating}/5 -- Tulis Review", on_text))
 
 
 class SkipPhotoButton(discord.ui.Button):
     def __init__(self, review_id: int) -> None:
-        super().__init__(label="Skip", style=discord.ButtonStyle.secondary)
+        super().__init__(label="Lewati", style=discord.ButtonStyle.secondary)
         self.review_id = review_id
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -892,12 +907,15 @@ class SkipPhotoButton(discord.ui.Button):
         review = await reviews_q.get_review(db, self.review_id)
         if not review or review["user_id"] != interaction.user.id:
             await interaction.response.send_message(
-                embed=embeds.error_embed("This prompt isn't for you."), ephemeral=True
+                embed=embeds.error_embed("Prompt ini bukan buat kamu."), ephemeral=True
             )
             return
         await reviews_q.set_awaiting_photo(db, self.review_id, False)
+        join_view = await build_join_server_view(db)
         await interaction.response.send_message(
-            embed=embeds.success_embed("No problem -- your review is in without a photo."), ephemeral=True
+            embed=embeds.success_embed("Santai -- review kamu udah masuk tanpa foto."),
+            view=join_view,
+            ephemeral=True,
         )
         await order_actions.cleanup_dm_messages(interaction.client, review["order_id"])
 
@@ -911,12 +929,12 @@ class PhotoPromptView(discord.ui.View):
 
 class AnonymousToggleButton(discord.ui.Button):
     def __init__(self) -> None:
-        super().__init__(label="Anonymous: Off", style=discord.ButtonStyle.secondary, row=1)
+        super().__init__(label="Anonim: Nonaktif", style=discord.ButtonStyle.secondary, row=1)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         view: RatingPromptView = self.view  # type: ignore[assignment]
         view.anonymous = not view.anonymous
-        self.label = f"Anonymous: {'On' if view.anonymous else 'Off'}"
+        self.label = f"Anonim: {'Aktif' if view.anonymous else 'Nonaktif'}"
         await interaction.response.edit_message(view=view)
 
 
@@ -934,16 +952,16 @@ class ReviewStartButton(
     discord.ui.DynamicItem[discord.ui.Button],
     template=r"noctra:review:start:(?P<order_id>[0-9]+)",
 ):
-    """The 'Leave a Review' button -- DMed to the customer automatically when
-    staff marks their order completed (see bot.utils.order_actions). The
-    order ID is encoded in the custom_id so this keeps working after a bot
-    restart with no extra bookkeeping, the same trick as OrderActionButton."""
+    """Tombol 'Kasih Review' -- di-DM ke customer otomatis begitu staff
+    nandain order mereka selesai (lihat bot.utils.order_actions). Order ID
+    ke-encode di custom_id-nya jadi ini tetep jalan abis bot restart tanpa
+    bookkeeping ekstra, trik yang sama kayak OrderActionButton."""
 
     def __init__(self, order_id: int) -> None:
         super().__init__(
             discord.ui.Button(
-                label="Leave a Review",
-                style=discord.ButtonStyle.success,
+                label="Kasih Review",
+                style=discord.ButtonStyle.secondary,
                 custom_id=f"noctra:review:start:{order_id}",
             )
         )
@@ -957,34 +975,34 @@ class ReviewStartButton(
         db = interaction.client.db  # type: ignore[attr-defined]
         order = await orders_q.get_order(db, self.order_id)
         if not order:
-            await interaction.response.send_message(embed=embeds.error_embed("Order not found."), ephemeral=True)
+            await interaction.response.send_message(embed=embeds.error_embed("Order gak ketemu."), ephemeral=True)
             return
         if order["user_id"] != interaction.user.id:
             await interaction.response.send_message(
-                embed=embeds.error_embed("Only the customer who placed this order can leave a review."),
+                embed=embeds.error_embed("Cuma customer yang mesen ini yang bisa kasih review."),
                 ephemeral=True,
             )
             return
         if order["status"] != "completed" or order["payment_status"] != "paid":
             await interaction.response.send_message(
-                embed=embeds.error_embed("This order isn't eligible for a review yet."), ephemeral=True
+                embed=embeds.error_embed("Order ini belum bisa direview."), ephemeral=True
             )
             return
         if await reviews_q.get_review_by_order(db, self.order_id):
             await interaction.response.send_message(
-                embed=embeds.error_embed("You've already reviewed this order. Use `/review edit` to change it."),
+                embed=embeds.error_embed("Kamu udah pernah review order ini. Pake `/review edit` buat ubah."),
                 ephemeral=True,
             )
             return
         embed = embeds.info_embed(
-            "Rate Your Purchase", "Choose a rating from 1 to 5, then write an optional review."
+            "Kasih Rating Belanjaan Kamu", "Pilih rating dari 1 sampe 5, terus tulis review (opsional)."
         )
         await interaction.response.send_message(embed=embed, view=RatingPromptView(self.order_id), ephemeral=True)
 
 
 # ============================================================================
-# PAYMENT PROOF DISAMBIGUATION (DM -- used when a customer has more than one
-# order awaiting payment at once, see bot.cogs.payment_proof)
+# DISAMBIGUASI BUKTI BAYAR (DM -- dipake kalau customer punya lebih dari
+# satu order yang lagi nunggu bayar sekaligus, lihat bot.cogs.payment_proof)
 # ============================================================================
 
 class PendingOrderSelect(discord.ui.Select):
@@ -1000,7 +1018,7 @@ class PendingOrderSelect(discord.ui.Select):
             )
             for o in orders[:MAX_SELECT_OPTIONS]
         ]
-        super().__init__(placeholder="Select which order this is about...", options=options)
+        super().__init__(placeholder="Pilih ini soal order yang mana...", options=options)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         order = self.orders_map[self.values[0]]
@@ -1009,13 +1027,13 @@ class PendingOrderSelect(discord.ui.Select):
         )
         if sent:
             await interaction.response.edit_message(
-                embed=embeds.success_embed(f"Sent to staff for Order #{order['id']}."), view=None
+                embed=embeds.success_embed(f"Udah dikirim ke staff buat Order #{order['id']}."), view=None
             )
         else:
             await interaction.response.edit_message(
                 embed=embeds.error_embed(
-                    "Staff haven't set up an order-log channel yet, so this couldn't be forwarded "
-                    "automatically. Please wait for staff to check your order manually."
+                    "Staff belum atur channel order-log, jadi ini gak bisa diterusin "
+                    "otomatis. Tunggu staff cek order kamu manual ya."
                 ),
                 view=None,
             )
