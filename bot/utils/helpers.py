@@ -1,6 +1,6 @@
-"""General-purpose helpers shared across cogs: price calculation, currency
-formatting, and a runtime-settings resolver that merges DB-stored settings
-over the `.env` defaults.
+"""Helper serbaguna yang dipakai bareng di semua cog: kalkulasi harga,
+format mata uang, dan resolver runtime-settings yang nge-gabungin setting
+dari DB di atas default dari `.env`.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from bot.database.queries import settings as settings_q
 def calculate_final_price(
     base_price: float, discount_type: str | None, discount_value: float
 ) -> float:
-    """Apply a discount to a base price. Returns a non-negative float."""
+    """Terapin diskon ke harga dasar. Selalu return float yang gak minus."""
     if not discount_type or discount_value <= 0:
         return round(max(0.0, base_price), 2)
     if discount_type == "percent":
@@ -40,7 +40,7 @@ def discount_label(discount_type: str | None, discount_value: float) -> str | No
 
 
 class RuntimeSettings:
-    """Resolves effective settings: DB override -> .env default."""
+    """Resolve setting yang efektif: override DB -> default .env."""
 
     def __init__(self, db: Database) -> None:
         self.db = db
@@ -60,24 +60,21 @@ class RuntimeSettings:
         return int(value) if value else None
 
     async def reviews_channel_id(self) -> int | None:
-        """Public channel where approved reviews are posted automatically
-        for everyone to see -- store reputation / social proof, not a staff
-        moderation queue."""
+        """Channel publik tempat review yang udah di-approve otomatis
+        diposting buat semua orang liat -- reputasi toko / social proof,
+        bukan antrian moderasi staff."""
         value = await self._get("reviews_channel_id", None)
         return int(value) if value else None
-
-    async def brand_logo_url(self) -> str | None:
-        return await self._get("brand_logo_url", None)
 
     async def leaderboard_channel_id(self) -> int | None:
         value = await self._get("leaderboard_channel_id", None)
         return int(value) if value else None
 
     async def leaderboard_excluded_user_ids(self) -> list[int]:
-        """User IDs manually hidden from the Top Spenders leaderboard via
-        /settings leaderboard_exclude -- e.g. staff/tester accounts used to
-        test checkout, whose spend shouldn't count toward the public
-        leaderboard. Stored as a comma-separated string of IDs."""
+        """User ID yang manual disembunyiin dari leaderboard Top Spenders
+        lewat /settings leaderboard_exclude -- misal akun staff/tester yang
+        dipake buat nyoba checkout, yang spend-nya gak seharusnya kehitung
+        di leaderboard publik. Disimpan sebagai string ID dipisah koma."""
         value = await self._get("leaderboard_excluded_users", "")
         if not value:
             return []
@@ -89,11 +86,17 @@ class RuntimeSettings:
         return ids
 
     async def purchase_feed_channel_id(self) -> int | None:
-        """Public channel where a card is posted every time an order is
-        marked completed -- "X just bought Y" -- configured via
+        """Channel publik tempat kartu "Si X baru aja beli Y" diposting
+        tiap ada order yang ditandain selesai -- diatur lewat
         /settings purchase_feed_channel."""
         value = await self._get("purchase_feed_channel_id", None)
         return int(value) if value else None
+
+    async def main_server_invite_url(self) -> str | None:
+        """Link invite server utama, ditampilin sebagai tombol "Join
+        Server" abis customer selesai kasih review -- diatur lewat
+        /settings main_server_invite."""
+        return await self._get("main_server_invite_url", None)
 
     async def ticket_category_id(self) -> int | None:
         value = await self._get("ticket_category_id", config.ticket_category_id)

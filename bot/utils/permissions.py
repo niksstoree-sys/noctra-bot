@@ -1,8 +1,8 @@
 """
-Staff permission checks.
+Cek izin staff.
 
-"Staff" means: Discord Administrator permission, OR holding the role
-configured via /settings (falls back to STAFF_ROLE_ID in .env).
+"Staff" artinya: punya permission Administrator di Discord, ATAU pegang
+role yang diatur lewat /settings (fallback ke STAFF_ROLE_ID di .env).
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ def staff_only():
         ok = await is_staff(interaction)
         if not ok:
             raise app_commands.CheckFailure(
-                "You need staff permissions to use this command."
+                "Kamu butuh izin staff buat pake command ini."
             )
         return True
 

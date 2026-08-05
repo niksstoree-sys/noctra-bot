@@ -1,10 +1,10 @@
 """
-Posts an approved review into the public reviews channel
-(`/settings reviews_channel`) for store reputation / social proof -- this is
-a public showcase visible to anyone in the server, not a staff moderation
-queue. Staff still decide what gets shown at all via the existing
-`/review admin approve|reject|hide|delete` commands; this module only
-handles getting an already-approved review onto the showcase channel.
+Posting review yang udah di-approve ke channel review publik
+(`/settings reviews_channel`) buat reputasi toko / social proof -- ini
+showcase publik yang bisa dilihat siapa aja di server, bukan antrian
+moderasi staff. Staff tetep yang nentuin apa yang boleh tampil lewat
+command `/review admin approve|reject|hide|delete` yang udah ada; module ini
+cuma ngurusin review yang udah di-approve biar nongol di channel showcase.
 """
 
 from __future__ import annotations
@@ -19,9 +19,10 @@ from bot.utils.helpers import RuntimeSettings
 
 
 async def post_review_publicly(bot, review_id: int) -> bool:
-    """Returns True if the review was posted, False if no reviews channel
-    is configured (or the post otherwise couldn't happen) -- callers use
-    this to decide whether to mention it in their confirmation message."""
+    """Return True kalau review-nya berhasil diposting, False kalau channel
+    review belum diatur (atau postingnya gagal karena hal lain) -- caller
+    make ini buat nentuin apakah perlu disebutin di pesan konfirmasi
+    mereka."""
     db = bot.db
     runtime = RuntimeSettings(db)
     channel_id = await runtime.reviews_channel_id()
@@ -40,31 +41,33 @@ async def post_review_publicly(bot, review_id: int) -> bool:
     if not product:
         return False
 
-    author_display = "Anonymous"
+    author_display = "Anonim"
     author_avatar_url = None
     if not review["anonymous"]:
         try:
             user = bot.get_user(review["user_id"]) or await bot.fetch_user(review["user_id"])
-            # embed.set_author(name=...) renders plain text only -- unlike a
-            # normal message or an embed field/description, it does NOT
-            # resolve @mention syntax into a clickable name, so a literal
-            # "<@123...>" string shows up as-is. The actual display name has
-            # to be fetched and used directly instead.
+            # embed.set_author(name=...) cuma render teks polos -- beda
+            # sama pesan atau field/description embed biasa, dia GAK
+            # nge-resolve syntax @mention jadi nama yang bisa diklik, jadi
+            # string "<@123...>" literal bakal muncul apa adanya. Nama
+            # display asli harus di-fetch dan dipake langsung.
             author_display = user.display_name
             author_avatar_url = user.display_avatar.url
         except discord.HTTPException:
             author_display = f"User {review['user_id']}"
             author_avatar_url = None
 
-    brand_logo_url = await runtime.brand_logo_url()
+    # Ambil avatar bot langsung sebagai fallback banner -- otomatis ikut
+    # sync kalau icon bot diganti, gak perlu setting brand logo manual.
+    bot_avatar_url = bot.user.display_avatar.url if bot.user else None
     embed = embeds.review_card_embed(
         review, product, author_display, author_avatar_url=author_avatar_url,
-        brand_logo_url=brand_logo_url, verified=True,
+        bot_avatar_url=bot_avatar_url, verified=True,
     )
 
     try:
         await channel.send(embed=embed)
         return True
     except discord.HTTPException:
-        logger.exception("Failed to post review #%s to the reviews channel.", review_id)
+        logger.exception("Gagal posting review #%s ke channel review.", review_id)
         return False

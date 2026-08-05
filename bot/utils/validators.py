@@ -1,4 +1,4 @@
-"""Validation logic for admin-configured dynamic product input fields."""
+"""Logic validasi buat dynamic input field produk yang diatur admin."""
 
 from __future__ import annotations
 
@@ -22,27 +22,27 @@ def validate_field_value(
     validation: str,
     label: str,
 ) -> str:
-    """Validate a single submitted field value, returning the cleaned value."""
+    """Validasi satu value field yang disubmit, return value yang udah dibersihin."""
     value = (value or "").strip()
 
     if not value:
         if required:
-            raise FieldValidationError(f"{label} is required.")
+            raise FieldValidationError(f"{label} wajib diisi.")
         return value
 
     if len(value) < min_length:
-        raise FieldValidationError(f"{label} must be at least {min_length} characters.")
+        raise FieldValidationError(f"{label} minimal {min_length} karakter.")
     if len(value) > max_length:
-        raise FieldValidationError(f"{label} must be at most {max_length} characters.")
+        raise FieldValidationError(f"{label} maksimal {max_length} karakter.")
 
     if validation == "numeric" and not value.isdigit():
-        raise FieldValidationError(f"{label} must contain numbers only.")
+        raise FieldValidationError(f"{label} cuma boleh angka.")
     elif validation == "alpha" and not value.isalpha():
-        raise FieldValidationError(f"{label} must contain letters only.")
+        raise FieldValidationError(f"{label} cuma boleh huruf.")
     elif validation == "alphanumeric" and not value.isalnum():
-        raise FieldValidationError(f"{label} must contain letters and numbers only.")
+        raise FieldValidationError(f"{label} cuma boleh huruf dan angka.")
     elif validation == "email" and not _EMAIL_RE.match(value):
-        raise FieldValidationError(f"{label} must be a valid email address.")
+        raise FieldValidationError(f"{label} harus email yang valid.")
 
     return value
 
@@ -53,23 +53,23 @@ def _char_is_emoji_ish(ch: str) -> bool:
         return True
     if 0x1F3FB <= cp <= 0x1F3FF:  # skin tone modifiers
         return True
-    if 0x1F1E6 <= cp <= 0x1F1FF:  # regional indicators (flag emoji)
+    if 0x1F1E6 <= cp <= 0x1F1FF:  # regional indicators (emoji bendera)
         return True
     try:
         category = unicodedata.category(ch)
     except (TypeError, ValueError):
         return False
-    return category in ("So", "Sk")  # Symbol-other / Symbol-modifier: where real emoji live
+    return category in ("So", "Sk")  # Symbol-other / Symbol-modifier: tempat emoji asli
 
 
 def is_valid_emoji(value: str) -> bool:
-    """Accepts a real unicode emoji (single or a ZWJ-joined combo like a
-    flag or skin-toned gesture) or a custom Discord emoji in
-    <:name:id>/<a:name:id> form. Used to validate the optional `emoji`
-    parameter on /category create|edit. discord.py's own
-    PartialEmoji.from_str() does NOT validate this -- it treats any bare
-    string as a "unicode emoji" with no actual character check, so this
-    does the real check by Unicode category instead."""
+    """Nerima emoji unicode asli (satuan atau gabungan ZWJ kayak emoji
+    bendera atau gesture skin-tone) atau custom emoji Discord dalam bentuk
+    <:name:id>/<a:name:id>. Dipake buat validasi parameter opsional `emoji`
+    di /category create|edit. PartialEmoji.from_str() bawaan discord.py
+    GAK validasi ini -- dia nganggep string apapun sebagai "unicode emoji"
+    tanpa cek karakter beneran, jadi ini ngecek langsung lewat kategori
+    Unicode-nya."""
     value = value.strip()
     if not value:
         return False

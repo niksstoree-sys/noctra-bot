@@ -1,9 +1,9 @@
 """
-Shared ticket channel actions.
+Aksi channel ticket yang dipakai bareng.
 
-Centralised here (rather than in a View or Cog) so that the close button,
-the /ticket slash commands, and the auto-archive background task can all
-reuse the exact same logic without circular imports between bot.ui and
+Disentralisasi di sini (bukan di View atau Cog) biar tombol close,
+command slash /ticket, dan background task auto-archive semua bisa
+makai logic yang persis sama tanpa circular import antara bot.ui dan
 bot.cogs.
 """
 
@@ -62,10 +62,10 @@ async def create_ticket_channel(
         channel_name,
         category=category,
         overwrites=overwrites,
-        reason=f"NOCTRA ticket ({kind}) for {user}",
+        reason=f"Ticket NOCTRA ({kind}) buat {user}",
     )
     await tickets_q.create_ticket(db, user.id, channel.id, kind, order_id)
-    logger.info("Created ticket channel #%s (%s) for %s", channel.name, kind, user)
+    logger.info("Ticket channel dibuat #%s (%s) buat %s", channel.name, kind, user)
     return channel
 
 
@@ -86,7 +86,7 @@ async def close_ticket(
     try:
         transcript_file = await build_html_transcript(channel)
     except Exception:  # noqa: BLE001
-        logger.exception("Failed to build transcript for #%s", channel.name)
+        logger.exception("Gagal bikin transcript buat #%s", channel.name)
         transcript_file = None
 
     log_channel_id = await runtime.ticket_log_channel_id()
@@ -103,7 +103,7 @@ async def close_ticket(
                     file=transcript_file if transcript_file else discord.utils.MISSING,
                 )
             except discord.HTTPException:
-                logger.exception("Failed to post transcript to log channel.")
+                logger.exception("Gagal posting transcript ke log channel.")
 
     closed_embed = embeds.ticket_closed_embed(reason, closed_by_display)
     if ticket:
@@ -115,7 +115,7 @@ async def close_ticket(
         except discord.HTTPException:
             pass
 
-    # Lock the channel for the ticket owner; staff retains access via overwrite.
+    # Kunci channel buat pemilik ticket; staff tetep bisa akses lewat overwrite.
     if ticket:
         try:
             owner = channel.guild.get_member(ticket["user_id"])
@@ -124,12 +124,12 @@ async def close_ticket(
                     owner, view_channel=True, send_messages=False, read_message_history=True
                 )
         except discord.HTTPException:
-            logger.exception("Failed to lock channel #%s", channel.name)
+            logger.exception("Gagal kunci channel #%s", channel.name)
 
-    # Visibly move/rename the channel so a closed ticket doesn't just sit
-    # silently in the same place looking untouched -- this applies to BOTH
-    # a manual "Close Ticket" click and the inactivity auto-archive task,
-    # not just the latter.
+    # Pindahin/rename channel-nya biar keliatan jelas kalau ticket yang
+    # udah ditutup gak cuma diem di tempat yang sama tanpa perubahan --
+    # ini berlaku BAIK buat klik manual "Close Ticket" MAUPUN task
+    # auto-archive karena inaktif, bukan cuma yang belakangan.
     archive_category_id = await runtime.ticket_archive_category_id()
     if archive_category_id:
         archive_category = channel.guild.get_channel(archive_category_id)
@@ -137,13 +137,13 @@ async def close_ticket(
             try:
                 await channel.edit(category=archive_category)
             except discord.HTTPException:
-                logger.exception("Failed to move #%s to the archive category.", channel.name)
+                logger.exception("Gagal pindahin #%s ke kategori archive.", channel.name)
 
     if not channel.name.startswith("closed-"):
         try:
             await channel.edit(name=f"closed-{channel.name}"[:100])
         except discord.HTTPException:
-            logger.exception("Failed to rename #%s on close.", channel.name)
+            logger.exception("Gagal rename #%s pas close.", channel.name)
 
 
 async def reopen_ticket(bot, channel: discord.TextChannel, reopened_by_display: str) -> None:
@@ -162,13 +162,13 @@ async def reopen_ticket(bot, channel: discord.TextChannel, reopened_by_display: 
         except discord.HTTPException:
             pass
 
-    # Undo the visible close marker: drop the "closed-" prefix and move back
-    # to the regular ticket category if one is configured.
+    # Balikin penanda close yang keliatan: hapus prefix "closed-" dan
+    # pindah balik ke kategori ticket biasa kalau diatur.
     if channel.name.startswith("closed-"):
         try:
             await channel.edit(name=channel.name.removeprefix("closed-")[:100])
         except discord.HTTPException:
-            logger.exception("Failed to rename #%s on reopen.", channel.name)
+            logger.exception("Gagal rename #%s pas reopen.", channel.name)
 
     ticket_category_id = await runtime.ticket_category_id()
     if ticket_category_id:
@@ -180,12 +180,12 @@ async def reopen_ticket(bot, channel: discord.TextChannel, reopened_by_display: 
                 pass
 
     await channel.send(
-        embed=embeds.info_embed("Ticket Reopened", f"Reopened by **{reopened_by_display}**.")
+        embed=embeds.info_embed("Ticket Dibuka Lagi", f"Dibuka lagi sama **{reopened_by_display}**.")
     )
 
 
 class _ReopenViewRef:
-    """Lazy holder to avoid a circular import between this module and bot.ui.views."""
+    """Penampung lazy buat ngindarin circular import antara module ini dan bot.ui.views."""
 
     _view = None
 
