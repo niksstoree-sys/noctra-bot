@@ -1,9 +1,8 @@
-"""Global error handling for slash commands.
+"""Global error handling buat slash command.
 
-Centralising this avoids duplicated try/except blocks across every cog and
-guarantees the user always gets a clean embed response instead of a silent
-failure or a raw traceback, while full details still get logged server-side.
-"""
+Disentralisasi di sini biar gak ada try/except berulang di tiap cog dan
+mastiin user selalu dapet embed yang rapi daripada gagal diem-diem atau
+raw traceback, sementara detail lengkapnya tetep kelog di server."""
 
 from __future__ import annotations
 
@@ -19,14 +18,14 @@ def setup_error_handler(bot) -> None:
 
     async def on_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         if isinstance(error, app_commands.CheckFailure):
-            message = str(error) or "You don't have permission to use this command."
+            message = str(error) or "Kamu gak punya izin buat pake command ini."
         elif isinstance(error, app_commands.CommandOnCooldown):
-            message = f"This command is on cooldown. Try again in {error.retry_after:.1f}s."
+            message = f"Command ini lagi cooldown. Coba lagi dalam {error.retry_after:.1f} detik ya."
         elif isinstance(error, app_commands.TransformerError):
-            message = "One of the values you provided was invalid."
+            message = "Salah satu value yang kamu masukin gak valid."
         else:
             logger.exception("Unhandled app command error", exc_info=error)
-            message = "Something went wrong while running that command. Staff has been notified."
+            message = "Ada yang error pas jalanin command itu. Staff udah dikasih tau."
 
         embed = error_embed(message)
         try:
@@ -35,6 +34,6 @@ def setup_error_handler(bot) -> None:
             else:
                 await interaction.response.send_message(embed=embed, ephemeral=True)
         except discord.HTTPException:
-            logger.exception("Failed to deliver error message to user.")
+            logger.exception("Gagal ngirim pesan error ke user.")
 
     tree.on_error = on_error
