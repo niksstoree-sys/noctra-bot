@@ -128,56 +128,8 @@ def product_list_embed(category_type, products: list) -> discord.Embed:
     return embed
 
 
-def product_detail_embed(product, fields: list, rating_summary: dict) -> discord.Embed:
-    final = calculate_final_price(
-        product["base_price"], product["discount_type"], product["discount_value"]
-    )
-    price_text = format_price(final, product["currency_label"])
-    dlabel = discount_label(product["discount_type"], product["discount_value"])
-
-    title = f"{product['emoji']} {product['name']}" if product["emoji"] else product["name"]
-    embed = base_embed(
-        title,
-        product["description"] or "Belum ada deskripsi.",
-        color=COLOR_PRIMARY,
-        thumbnail_url=product["image_url"] or None,
-    )
-
-    price_line = f"**{price_text}**"
-    if dlabel:
-        price_line += f"  {MARK_DASH}  {dlabel} (awalnya {format_price(product['base_price'], product['currency_label'])})"
-    embed.add_field(name="Harga", value=price_line, inline=True)
-
-    type_label = product["product_type"].replace("_", " ").title()
-    embed.add_field(name="Tipe", value=type_label, inline=True)
-
-    if product["stock_type"] == "unlimited":
-        stock_text = "Unlimited"
-    else:
-        stock_text = f"Sisa {product['stock_quantity']}"
-    embed.add_field(name="Stok", value=stock_text, inline=True)
-
-    if fields:
-        req = [f["label"] for f in fields if f["required"]]
-        opt = [f["label"] for f in fields if not f["required"]]
-        field_text = ""
-        if req:
-            field_text += "Wajib diisi: " + ", ".join(req)
-        if opt:
-            field_text += ("\n" if field_text else "") + "Opsional: " + ", ".join(opt)
-        embed.add_field(name="Data yang Dibutuhin Pas Checkout", value=field_text, inline=False)
-
-    if rating_summary["total"]:
-        bar = rating_bar(rating_summary["average"])
-        embed.add_field(
-            name="Rating",
-            value=f"{rating_summary['average']:.1f}/5 {MARK_DASH} {bar} {MARK_DASH} {rating_summary['total']} ulasan",
-            inline=False,
-        )
-    else:
-        embed.add_field(name="Rating", value="Belum ada ulasan nih.", inline=False)
-
-    return embed
+# product_detail_embed pindah ke bot.ui.components.product_detail_container()
+# -- sekarang dirender pake Components V2, bukan Embed biasa.
 
 
 # -- Order / Ticket -----------------------------------------------------------
@@ -222,74 +174,9 @@ def order_summary_embed(
     return embed
 
 
-def order_invoice_embed(
-    order_row,
-    product_row,
-    payment_row,
-    bot_avatar_url: str | None = None,
-) -> discord.Embed:
-    """Struk bersih yang dikirim begitu order ditandain selesai -- beda sama
-    order_summary_embed (yang cuma kartu kerja checkout-in-progress dan bakal
-    dibersihin belakangan). Ini didesain buat nempel permanen di DM customer
-    sebagai bukti pembelian mereka.
-
-    `bot_avatar_url` diambil langsung dari foto profil bot -- jadi kalau
-    icon bot lu ganti, struk ini otomatis ikut ganti juga tanpa perlu
-    setting manual."""
-    invoice_number = f"NOCTRA-{order_row['id']:06d}"
-    completed_ts = int(datetime.utcnow().timestamp())
-
-    embed = base_embed(
-        f"{EMOJI_SUCCESS} Invoice {invoice_number}",
-        "Makasih udah belanja -- ini struk pembelian kamu.",
-        color=COLOR_SUCCESS,
-        thumbnail_url=bot_avatar_url,
-    )
-    embed.add_field(name="Barang", value=product_row["name"], inline=False)
-    embed.add_field(
-        name="Total Bayar",
-        value=f"**{format_price(order_row['total_price'], order_row['currency_label'])}**",
-        inline=True,
-    )
-    if payment_row:
-        embed.add_field(name="Metode Bayar", value=payment_row["name"], inline=True)
-    embed.add_field(name="Order ID", value=f"#{order_row['id']}", inline=True)
-    embed.add_field(name="Selesai", value=f"<t:{completed_ts}:f>", inline=True)
-    embed.set_footer(text=f"{FOOTER_TEXT}  {MARK_DASH}  Simpan ini buat catatan kamu ya")
-    return embed
-
-
-def purchase_announcement_embed(
-    buyer_display: str,
-    buyer_avatar_url: str | None,
-    product_row,
-    category_type_row,
-    order_row,
-) -> discord.Embed:
-    """Kartu publik "Si X baru aja beli Y" yang diposting ke channel
-    purchase-feed begitu order ditandain selesai. Gaya visualnya sama kayak
-    review_card_embed -- author tag kecil plus thumbnail gede dari avatar
-    yang sama, soalnya icon author yang kecil suka gak keliatan."""
-    price_text = format_price(order_row["total_price"], order_row["currency_label"])
-    type_label = product_row["product_type"].replace("_", " ").title()
-
-    embed = base_embed(
-        f"{EMOJI_SUCCESS} Pembelian Baru",
-        f"**{buyer_display}** baru aja beli **{product_row['name']}**!",
-        color=COLOR_SUCCESS,
-        thumbnail_url=buyer_avatar_url,
-        image_url=product_row["image_url"] or None,
-    )
-    embed.set_author(name=buyer_display, icon_url=buyer_avatar_url or None)
-
-    embed.add_field(name="Produk", value=product_row["name"], inline=True)
-    if category_type_row:
-        cat_emoji = f"{category_type_row['emoji']} " if category_type_row["emoji"] else ""
-        embed.add_field(name="Kategori", value=f"{cat_emoji}{category_type_row['name']}", inline=True)
-    embed.add_field(name="Tipe", value=type_label, inline=True)
-    embed.add_field(name="Harga", value=f"**{price_text}**", inline=True)
-
-    return embed
+# order_invoice_embed dan purchase_announcement_embed pindah ke
+# bot.ui.components (invoice_view / purchase_announcement_view) -- dua-duanya
+# sekarang dirender pake Components V2, bukan Embed biasa.
 
 
 def ticket_welcome_embed(order_summary_text: str | None = None) -> discord.Embed:
