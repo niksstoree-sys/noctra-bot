@@ -169,7 +169,10 @@ class ProductSelect(discord.ui.Select):
         fields = await fields_q.list_fields(db, product["category_type_id"])
         rating_summary = await reviews_q.get_rating_summary(db, product_id)
         view = ProductDetailView(product, fields, rating_summary)
-        await interaction.response.edit_message(view=view)
+        # Discord ngewajibin embed lama di-clear eksplisit pas pesan pindah
+        # ke Components V2 -- kalau enggak, edit-nya ditolak dan interaction
+        # timeout ("didn't respond in time") tanpa pesan error yang jelas.
+        await interaction.response.edit_message(embed=None, view=view)
 
 
 class BackToCategoryTypesButton(discord.ui.Button):
@@ -207,6 +210,31 @@ class BuyButton(discord.ui.Button):
         await start_purchase(interaction, self.product["id"])
 
 
+class BackFromProductDetailButton(discord.ui.Button):
+    """Tombol Kembali khusus buat kartu produk Components V2. Discord GAK
+    ngebolehin ngedit pesan yang udah kepake Components V2 balik ke embed
+    klasik (batasan permanen dari API-nya, bukan bug) -- jadi daripada
+    edit_message() pesan kartu ini, tombol ini kirim pesan ephemeral BARU
+    yang isinya browsing embed klasik. Kartu V2 yang lama dibiarin apa
+    adanya (customer bisa dismiss sendiri lewat "Dismiss message")."""
+
+    def __init__(self, category_id: int) -> None:
+        super().__init__(label="Kembali", style=discord.ButtonStyle.secondary)
+        self.category_id = category_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        db = interaction.client.db  # type: ignore[attr-defined]
+        category = await categories_q.get_category(db, self.category_id)
+        category_types = await category_types_q.list_category_types(db, category_id=self.category_id, enabled_only=True)
+        embed = embeds.base_embed(
+            f"NOCTRA -- {category['emoji'] + ' ' if category and category['emoji'] else ''}{category['name'] if category else ''}",
+            "Pilih tipe di bawah buat liat produknya.",
+            color=COLOR_ACCENT,
+        )
+        view = CategoryTypeBrowseView(category, category_types)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+
 class ProductDetailView(discord.ui.LayoutView):
     """Kartu detail produk -- Components V2. Isinya (harga/tipe/stok/rating)
     dibangun sama components.product_detail_container(), tombol Beli
@@ -219,7 +247,7 @@ class ProductDetailView(discord.ui.LayoutView):
         container.add_item(
             discord.ui.ActionRow(
                 BuyButton(product),
-                BackToCategoryTypesButton(product["category_type_id"]),
+                BackFromProductDetailButton(product["category_type_id"]),
             )
         )
         self.add_item(container)
