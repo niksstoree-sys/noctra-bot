@@ -42,7 +42,7 @@ from bot.database.queries import (
     reviews as reviews_q,
     tickets as tickets_q,
 )
-from bot.ui import embeds
+from bot.ui import components, embeds
 from bot.ui.modals import MessageModal, ReasonModal, ReviewTextModal, collect_dynamic_fields
 from bot.utils import order_actions, ticket_actions
 from bot.utils.helpers import RuntimeSettings, calculate_final_price
@@ -168,9 +168,8 @@ class ProductSelect(discord.ui.Select):
         product = await products_q.get_product(db, product_id)
         fields = await fields_q.list_fields(db, product["category_type_id"])
         rating_summary = await reviews_q.get_rating_summary(db, product_id)
-        embed = embeds.product_detail_embed(product, fields, rating_summary)
-        view = ProductDetailView(product)
-        await interaction.response.edit_message(embed=embed, view=view)
+        view = ProductDetailView(product, fields, rating_summary)
+        await interaction.response.edit_message(view=view)
 
 
 class BackToCategoryTypesButton(discord.ui.Button):
@@ -208,11 +207,22 @@ class BuyButton(discord.ui.Button):
         await start_purchase(interaction, self.product["id"])
 
 
-class ProductDetailView(discord.ui.View):
-    def __init__(self, product) -> None:
+class ProductDetailView(discord.ui.LayoutView):
+    """Kartu detail produk -- Components V2. Isinya (harga/tipe/stok/rating)
+    dibangun sama components.product_detail_container(), tombol Beli
+    Sekarang & Kembali ditempel di sini soalnya butuh callback yang nyambung
+    ke alur checkout/browsing lain."""
+
+    def __init__(self, product, fields: list, rating_summary: dict) -> None:
         super().__init__(timeout=300)
-        self.add_item(BuyButton(product))
-        self.add_item(BackToCategoryTypesButton(product["category_type_id"]))
+        container = components.product_detail_container(product, fields, rating_summary)
+        container.add_item(
+            discord.ui.ActionRow(
+                BuyButton(product),
+                BackToCategoryTypesButton(product["category_type_id"]),
+            )
+        )
+        self.add_item(container)
 
 
 class ShopPanelView(discord.ui.View):
