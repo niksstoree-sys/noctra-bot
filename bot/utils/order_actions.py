@@ -18,27 +18,34 @@ from bot.database.queries import orders as orders_q
 from bot.database.queries import payments as payments_q
 from bot.database.queries import products as products_q
 from bot.database.queries import reviews as reviews_q
-from bot.ui import embeds
+from bot.ui import components, embeds
 from bot.utils.helpers import RuntimeSettings
 
 
 async def _notify_customer(
     bot,
     user_id: int,
-    embed: discord.Embed,
+    embed: discord.Embed | None = None,
     view: discord.ui.View | None = None,
     *,
     order_id: int | None = None,
     track: bool = False,
+    layout: discord.ui.LayoutView | None = None,
 ) -> bool:
     """Kirim DM ke customer. Kalau `track` True (dan `order_id` diisi),
     pesan yang terkirim dicatat di order_dm_messages biar bisa dihapus
     belakangan -- dipakai buat pesan kerja yang sementara (notif status,
     prompt review, balesan staff), beda sama invoice final yang emang
-    didesain buat nempel permanen."""
+    didesain buat nempel permanen.
+
+    `layout` dipake buat pesan Components V2 (LayoutView) -- gak bisa
+    dicampur sama `embed`/`view` biasa dalam satu pesan Discord, jadi kalau
+    `layout` diisi, itu satu-satunya yang dikirim."""
     try:
         user = bot.get_user(user_id) or await bot.fetch_user(user_id)
-        if view is not None:
+        if layout is not None:
+            sent = await user.send(view=layout)
+        elif view is not None:
             sent = await user.send(embed=embed, view=view)
         else:
             sent = await user.send(embed=embed)
@@ -150,10 +157,10 @@ async def _post_purchase_announcement(bot, order, product) -> None:
         buyer_avatar_url = None
 
     category_type = await category_types_q.get_category_type(db, product["category_type_id"])
-    embed = embeds.purchase_announcement_embed(buyer_display, buyer_avatar_url, product, category_type, order)
+    layout = components.purchase_announcement_view(buyer_display, buyer_avatar_url, product, category_type, order)
 
     try:
-        await channel.send(embed=embed)
+        await channel.send(view=layout)
     except discord.HTTPException:
         logger.exception("Gagal posting pengumuman pembelian buat order #%s.", order["id"])
 
@@ -211,10 +218,10 @@ async def mark_completed(bot, order_id: int) -> tuple[bool, str]:
     # Ambil avatar bot langsung -- jadi kalau icon bot diganti, invoice ini
     # otomatis ikut sync tanpa perlu setting manual apapun.
     bot_avatar_url = bot.user.display_avatar.url if bot.user else None
-    invoice_embed = embeds.order_invoice_embed(order, product, payment, bot_avatar_url=bot_avatar_url)
+    invoice_layout = components.invoice_view(order, product, payment, bot_avatar_url=bot_avatar_url)
     # Gak di-track -- invoice ini emang didesain buat nempel permanen
     # sebagai bukti pembelian customer, beda sama pesan lain di alur ini.
-    await _notify_customer(bot, order["user_id"], invoice_embed)
+    await _notify_customer(bot, order["user_id"], layout=invoice_layout)
 
     existing_review = await reviews_q.get_review_by_order(db, order_id)
     if not existing_review:
