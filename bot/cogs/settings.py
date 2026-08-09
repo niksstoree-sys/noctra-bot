@@ -96,6 +96,19 @@ class SettingsCog(commands.Cog):
         )
 
     @settings_group.command(
+        name="review_banner_image",
+        description="Atur gambar banner default buat kartu review yang customer-nya gak nyertain foto.",
+    )
+    @app_commands.describe(image_url="URL gambar banner default (PNG/JPG/WebP)")
+    @staff_only()
+    async def review_banner_image(self, interaction: discord.Interaction, image_url: str) -> None:
+        await settings_q.set_setting(self.bot.db, "review_banner_url", image_url)
+        await interaction.response.send_message(
+            embed=embeds.success_embed("Banner default buat review udah diatur.").set_thumbnail(url=image_url),
+            ephemeral=True,
+        )
+
+    @settings_group.command(
         name="leaderboard_channel",
         description="Atur channel buat gambar leaderboard Top Spenders.",
     )
@@ -215,6 +228,7 @@ class SettingsCog(commands.Cog):
             "reviews_channel_id": await runtime.reviews_channel_id(),
             "purchase_feed_channel_id": await runtime.purchase_feed_channel_id(),
             "main_server_invite_url": await runtime.main_server_invite_url(),
+            "review_banner_url": await runtime.review_banner_url(),
             "leaderboard_channel_id": await runtime.leaderboard_channel_id(),
             "leaderboard_excluded_users": excluded_count or "Gak ada",
             "ticket_category_id": await runtime.ticket_category_id(),
