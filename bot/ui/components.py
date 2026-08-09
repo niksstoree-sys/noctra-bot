@@ -28,7 +28,7 @@ from datetime import datetime
 import discord
 
 from bot.core.emojis import EMOJI_SUCCESS
-from bot.core.theme import COLOR_PRIMARY, COLOR_SUCCESS, FOOTER_TEXT, MARK_DASH, rating_bar
+from bot.core.theme import COLOR_PRIMARY, COLOR_SUCCESS, FOOTER_TEXT, MARK_DASH, star_rating
 from bot.utils.helpers import calculate_final_price, discount_label, format_price
 
 
@@ -91,48 +91,9 @@ def invoice_view(
     return NoctraLayout(container, timeout=None)
 
 
-# -- Pengumuman pembelian ------------------------------------------------------
-
-def purchase_announcement_view(
-    buyer_display: str,
-    buyer_avatar_url: str | None,
-    product_row,
-    category_type_row,
-    order_row,
-) -> discord.ui.LayoutView:
-    """Kartu publik "Si X baru aja beli Y" -- diposting ke channel
-    purchase-feed begitu order ditandain selesai."""
-    price_text = format_price(order_row["total_price"], order_row["currency_label"])
-    type_label = product_row["product_type"].replace("_", " ").title()
-
-    header_text = discord.ui.TextDisplay(
-        f"## {EMOJI_SUCCESS} Pembelian Baru\n**{buyer_display}** baru aja beli **{product_row['name']}**!"
-    )
-    header = (
-        discord.ui.Section(header_text, accessory=discord.ui.Thumbnail(media=buyer_avatar_url))
-        if buyer_avatar_url
-        else header_text
-    )
-
-    lines = [f"**Produk**\n{product_row['name']}"]
-    if category_type_row:
-        cat_emoji = f"{category_type_row['emoji']} " if category_type_row["emoji"] else ""
-        lines.append(f"**Kategori**\n{cat_emoji}{category_type_row['name']}")
-    lines.append(f"**Tipe**\n{type_label}")
-    lines.append(f"**Harga**\n{price_text}")
-    detail_block = discord.ui.TextDisplay("\n\n".join(lines))
-
-    children: list = [header, discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.small), detail_block]
-
-    if product_row["image_url"]:
-        children.append(discord.ui.Separator(visible=False))
-        children.append(discord.ui.MediaGallery(discord.MediaGalleryItem(media=product_row["image_url"])))
-
-    children.append(discord.ui.Separator(visible=False))
-    children.append(discord.ui.TextDisplay(_footer_line()))
-
-    container = discord.ui.Container(*children, accent_colour=COLOR_SUCCESS)
-    return NoctraLayout(container, timeout=None)
+# Pengumuman pembelian ("Pembelian Baru") sempet dicoba di sini pake
+# Components V2, tapi di-revert balik ke embed klasik -- lihat
+# bot.ui.embeds.purchase_announcement_embed().
 
 
 # -- Detail produk --------------------------------------------------------------
@@ -183,8 +144,8 @@ def product_detail_container(product, fields: list, rating_summary: dict) -> dis
 
     children.append(discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.small))
     if rating_summary["total"]:
-        bar = rating_bar(rating_summary["average"])
-        rating_text = f"{rating_summary['average']:.1f}/5 {MARK_DASH} {bar} {MARK_DASH} {rating_summary['total']} ulasan"
+        stars = star_rating(rating_summary["average"])
+        rating_text = f"{rating_summary['average']:.1f}/5 {MARK_DASH} {stars} {MARK_DASH} {rating_summary['total']} ulasan"
     else:
         rating_text = "Belum ada ulasan nih."
     children.append(discord.ui.TextDisplay(f"**Rating**\n{rating_text}"))
