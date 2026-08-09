@@ -42,8 +42,11 @@ class SettingsCog(commands.Cog):
         thumbnail_url: str | None = None,
         button_label: str = "Jelajahi Toko",
     ) -> None:
-        embed = embeds.base_embed(title, description, image_url=image_url, thumbnail_url=thumbnail_url)
-        await interaction.channel.send(embed=embed, view=ShopPanelView(button_label=button_label))
+        view = ShopPanelView(
+            title=title, description=description, image_url=image_url,
+            thumbnail_url=thumbnail_url, button_label=button_label,
+        )
+        await interaction.channel.send(view=view)
         await interaction.response.send_message(embed=embeds.success_embed("Panel toko udah diposting."), ephemeral=True)
 
     @settings_group.command(
