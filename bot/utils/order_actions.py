@@ -157,10 +157,10 @@ async def _post_purchase_announcement(bot, order, product) -> None:
         buyer_avatar_url = None
 
     category_type = await category_types_q.get_category_type(db, product["category_type_id"])
-    layout = components.purchase_announcement_view(buyer_display, buyer_avatar_url, product, category_type, order)
+    embed = embeds.purchase_announcement_embed(buyer_display, buyer_avatar_url, product, category_type, order)
 
     try:
-        await channel.send(view=layout)
+        await channel.send(embed=embed)
     except discord.HTTPException:
         logger.exception("Gagal posting pengumuman pembelian buat order #%s.", order["id"])
 
