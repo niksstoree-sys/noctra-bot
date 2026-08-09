@@ -57,12 +57,13 @@ async def post_review_publicly(bot, review_id: int) -> bool:
             author_display = f"User {review['user_id']}"
             author_avatar_url = None
 
-    # Ambil avatar bot langsung sebagai fallback banner -- otomatis ikut
-    # sync kalau icon bot diganti, gak perlu setting brand logo manual.
-    bot_avatar_url = bot.user.display_avatar.url if bot.user else None
+    # Fallback banner diambil dari /settings review_banner_image, bukan
+    # avatar bot -- kalau staff belum atur, kartu review tanpa foto ya
+    # tampil tanpa banner sama sekali.
+    fallback_banner_url = await runtime.review_banner_url()
     embed = embeds.review_card_embed(
         review, product, author_display, author_avatar_url=author_avatar_url,
-        bot_avatar_url=bot_avatar_url, verified=True,
+        fallback_banner_url=fallback_banner_url, verified=True,
     )
 
     try:
