@@ -278,6 +278,7 @@ class ShopPanelView(discord.ui.LayoutView):
             label=button_label[:80], style=discord.ButtonStyle.secondary, custom_id="noctra:shop:browse"
         )
         button.callback = self.browse
+        container.add_item(discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.small))
         container.add_item(discord.ui.ActionRow(button))
 
         self.add_item(container)
