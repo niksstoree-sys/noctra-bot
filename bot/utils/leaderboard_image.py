@@ -47,15 +47,15 @@ BAR_BG       = (42, 29, 74)
 MEDAL_CLR    = [GOLD, SILVER, BRONZE]
 
 # -- Layout (final output pixel values, pre-supersampling) --------------------
-IMG_W    = 1200
+IMG_W    = 1800
 HEADER_H = 172
 ROW_H    = 130
 ROW_GAP  = 14
-PAD      = 50
+PAD      = 56
 BOTTOM   = 40
 RADIUS   = 18
 BAR_H    = 14
-BAR_W    = 380
+BAR_W    = 560
 AVATAR_D = 78
 BADGE_D  = 60
 
