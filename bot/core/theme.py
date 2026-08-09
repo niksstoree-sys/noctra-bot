@@ -24,7 +24,7 @@ COLOR_ACCENT = 0x7C5CFF      # blue violet
 COLOR_SUCCESS = 0x2ECC71
 COLOR_WARNING = 0xF5A623
 COLOR_DANGER = 0xE74C3C
-COLOR_MUTED = 0x2B2640       # near-black violet, used for neutral/info embeds
+COLOR_MUTED = 0x2B2640        # near-black violet, used for neutral/info embeds
 
 STATUS_COLORS = {
     "pending": COLOR_WARNING,
@@ -55,7 +55,23 @@ FOOTER_TEXT = f"{BRAND_NAME} STORE"
 
 
 def rating_bar(average: float, scale: int = 10) -> str:
-    """Render a simple block-character bar for a 0-5 rating."""
+    """Render a simple block-character bar for a 0-5 rating. Kept around
+    for the per-star distribution histogram (rating_distribution_embed),
+    which renders its own bars inline -- for a single average rating,
+    prefer star_rating() below instead, since the solid block characters
+    render as a plain flat bar (no visible texture) inside a Components V2
+    TextDisplay."""
     filled = round((average / 5) * scale) if average else 0
     filled = max(0, min(scale, filled))
     return MARK_BLOCK_FULL * filled + MARK_BLOCK_EMPTY * (scale - filled)
+
+
+def star_rating(average: float, scale: int = 5) -> str:
+    """Baris bintang (⭐/☆) buat nampilin rating rata-rata, dibulatin ke
+    bintang penuh terdekat -- dipake di kartu produk (Components V2) dan
+    review card. `average` bisa desimal (misal 4.5); presisi aslinya tetep
+    ditampilin terpisah sebagai teks angka (misal "4.5/5"), bintangnya cuma
+    representasi visual yang dibulatin."""
+    filled = round(average) if average else 0
+    filled = max(0, min(scale, filled))
+    return "\u2b50" * filled + "\u2606" * (scale - filled)
