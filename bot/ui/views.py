@@ -273,13 +273,14 @@ class ShopPanelView(discord.ui.LayoutView):
     ) -> None:
         super().__init__(timeout=None)
         container = components.shop_panel_container(title, description, image_url, thumbnail_url)
-        self.add_item(container)
 
         button = discord.ui.Button(
             label=button_label[:80], style=discord.ButtonStyle.secondary, custom_id="noctra:shop:browse"
         )
         button.callback = self.browse
-        self.add_item(discord.ui.ActionRow(button))
+        container.add_item(discord.ui.ActionRow(button))
+
+        self.add_item(container)
 
     async def browse(self, interaction: discord.Interaction) -> None:
         db = interaction.client.db  # type: ignore[attr-defined]
