@@ -59,7 +59,9 @@ def shop_panel_container(
 ) -> discord.ui.Container:
     """Isi panel /settings shop_panel -- staff isi title/description/gambar
     sendiri lewat parameter command, jadi teks (termasuk bullet list custom
-    kayak "» ...") dirender apa adanya, gak diapa-apain sama builder ini."""
+    kayak "» ...") dirender apa adanya, gak diapa-apain sama builder ini.
+    Gak ada footer text di sini biar clean -- tombolnya (ditempel sama
+    ShopPanelView) udah cukup nutup card-nya."""
     header_text = discord.ui.TextDisplay(f"## {title}\n{description}")
     header = (
         discord.ui.Section(header_text, accessory=discord.ui.Thumbnail(media=thumbnail_url))
@@ -69,11 +71,8 @@ def shop_panel_container(
 
     children: list = [header]
     if image_url:
-        children.append(discord.ui.Separator(visible=False))
+        children.append(discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.small))
         children.append(discord.ui.MediaGallery(discord.MediaGalleryItem(media=image_url)))
-
-    children.append(discord.ui.Separator(visible=False))
-    children.append(discord.ui.TextDisplay(_footer_line()))
 
     return discord.ui.Container(*children, accent_colour=COLOR_PRIMARY)
 
