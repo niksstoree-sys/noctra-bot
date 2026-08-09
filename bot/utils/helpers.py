@@ -98,6 +98,14 @@ class RuntimeSettings:
         /settings main_server_invite."""
         return await self._get("main_server_invite_url", None)
 
+    async def review_banner_url(self) -> str | None:
+        """Gambar banner default buat kartu review publik, dipake kalau
+        customer gak nyertain foto review sendiri -- diatur lewat
+        /settings review_banner_image. Kalau belum diatur, kartu review
+        tanpa foto ya tampil tanpa banner sama sekali (gak fallback ke
+        apapun)."""
+        return await self._get("review_banner_url", None)
+
     async def ticket_category_id(self) -> int | None:
         value = await self._get("ticket_category_id", config.ticket_category_id)
         return int(value) if value else None
