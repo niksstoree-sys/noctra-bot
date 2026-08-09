@@ -25,6 +25,7 @@ from bot.core.theme import (
     MARK_DASH,
     STATUS_COLORS,
     rating_bar,
+    star_rating,
 )
 from bot.utils.helpers import calculate_final_price, discount_label, format_price
 
@@ -174,9 +175,42 @@ def order_summary_embed(
     return embed
 
 
-# order_invoice_embed dan purchase_announcement_embed pindah ke
-# bot.ui.components (invoice_view / purchase_announcement_view) -- dua-duanya
-# sekarang dirender pake Components V2, bukan Embed biasa.
+# order_invoice_embed pindah ke bot.ui.components.invoice_view() -- itu
+# masih dirender pake Components V2. purchase_announcement_embed di bawah
+# ini TETEP embed klasik (sempet dicoba V2, tapi di-revert balik).
+
+
+def purchase_announcement_embed(
+    buyer_display: str,
+    buyer_avatar_url: str | None,
+    product_row,
+    category_type_row,
+    order_row,
+) -> discord.Embed:
+    """Kartu publik "Si X baru aja beli Y" yang diposting ke channel
+    purchase-feed begitu order ditandain selesai. Gaya visualnya sama kayak
+    review_card_embed -- author tag kecil plus thumbnail gede dari avatar
+    yang sama, soalnya icon author yang kecil suka gak keliatan."""
+    price_text = format_price(order_row["total_price"], order_row["currency_label"])
+    type_label = product_row["product_type"].replace("_", " ").title()
+
+    embed = base_embed(
+        f"{EMOJI_SUCCESS} Pembelian Baru",
+        f"**{buyer_display}** baru aja beli **{product_row['name']}**!",
+        color=COLOR_SUCCESS,
+        thumbnail_url=buyer_avatar_url,
+        image_url=product_row["image_url"] or None,
+    )
+    embed.set_author(name=buyer_display, icon_url=buyer_avatar_url or None)
+
+    embed.add_field(name="Produk", value=product_row["name"], inline=True)
+    if category_type_row:
+        cat_emoji = f"{category_type_row['emoji']} " if category_type_row["emoji"] else ""
+        embed.add_field(name="Kategori", value=f"{cat_emoji}{category_type_row['name']}", inline=True)
+    embed.add_field(name="Tipe", value=type_label, inline=True)
+    embed.add_field(name="Harga", value=f"**{price_text}**", inline=True)
+
+    return embed
 
 
 def ticket_welcome_embed(order_summary_text: str | None = None) -> discord.Embed:
@@ -198,24 +232,20 @@ def ticket_closed_embed(close_reason: str | None, closed_by: str) -> discord.Emb
 
 # -- Review ---------------------------------------------------------------------
 
-def star_rating(rating: int, scale: int = 5) -> str:
-    """Baris bintang emoji buat rating 0-5, misal 4/5 -> 4 bintang penuh + 1 kosong."""
-    rating = max(0, min(scale, rating))
-    return "\u2b50" * rating + "\u2606" * (scale - rating)
-
-
 def review_card_embed(
     review_row,
     product_row,
     author_display: str,
     author_avatar_url: str | None = None,
-    bot_avatar_url: str | None = None,
+    fallback_banner_url: str | None = None,
     verified: bool = True,
 ) -> discord.Embed:
     # Slot banner di bawah dipakai gantian: foto review dari customer
-    # diutamain kalau ada, baru fallback ke avatar bot -- gak pernah
-    # ditumpuk dua-duanya biar tetep rapi.
-    banner_url = review_row["image_url"] or bot_avatar_url
+    # diutamain kalau ada, baru fallback ke gambar default yang diatur staff
+    # lewat /settings review_banner_image -- gak pernah ditumpuk dua-duanya
+    # biar tetep rapi. Kalau staff belum atur gambar default, banner-nya
+    # kosong aja (gak pake avatar bot atau apapun sebagai pengganti).
+    banner_url = review_row["image_url"] or fallback_banner_url
 
     # Selalu ungu brand di sini -- ini kartu showcase publik, bukan
     # indikator status, jadi gak perlu ikutan ganti warna hijau/merah
