@@ -253,22 +253,35 @@ class ProductDetailView(discord.ui.LayoutView):
         self.add_item(container)
 
 
-class ShopPanelView(discord.ui.View):
-    """Panel persistent yang diposting sekali lewat /settings shop_panel.
-    Customer klik ini daripada jalanin /shop -- browsing sepenuhnya lewat
-    tombol.
+class ShopPanelView(discord.ui.LayoutView):
+    """Panel persistent yang diposting sekali lewat /settings shop_panel --
+    Components V2. Customer klik ini daripada jalanin /shop -- browsing
+    sepenuhnya lewat tombol.
 
     custom_id-nya tetep sama ("noctra:shop:browse") jadi ini tetep jalan
-    abis bot restart gak peduli label apa yang staff pilih pas posting --
-    yang penting cuma `custom_id` tombolnya buat nempel balik ke template
-    persistent yang didaftarin di setup_hook, bukan label yang keliatan."""
+    abis bot restart -- yang dicocokin Discord buat routing klik tombol
+    cuma custom_id-nya, bukan isi title/description/gambar panel (itu baked
+    di message pas awal diposting, gak perlu match persis pas restart)."""
 
-    def __init__(self, button_label: str = "Jelajahi Toko") -> None:
+    def __init__(
+        self,
+        title: str = "NOCTRA STORE",
+        description: str = "Klik di bawah buat jelajahin katalog dan pesen -- gak perlu command.",
+        image_url: str | None = None,
+        thumbnail_url: str | None = None,
+        button_label: str = "Jelajahi Toko",
+    ) -> None:
         super().__init__(timeout=None)
-        self.browse.label = button_label[:80]
+        container = components.shop_panel_container(title, description, image_url, thumbnail_url)
+        self.add_item(container)
 
-    @discord.ui.button(label="Jelajahi Toko", style=discord.ButtonStyle.secondary, custom_id="noctra:shop:browse")
-    async def browse(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        button = discord.ui.Button(
+            label=button_label[:80], style=discord.ButtonStyle.secondary, custom_id="noctra:shop:browse"
+        )
+        button.callback = self.browse
+        self.add_item(discord.ui.ActionRow(button))
+
+    async def browse(self, interaction: discord.Interaction) -> None:
         db = interaction.client.db  # type: ignore[attr-defined]
         categories = await categories_q.list_categories(db, enabled_only=True)
         embed = embeds.base_embed(

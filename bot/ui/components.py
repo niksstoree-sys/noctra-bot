@@ -49,6 +49,35 @@ def _footer_line(extra: str | None = None) -> str:
     return f"-# {text}"
 
 
+# -- Panel toko -----------------------------------------------------------------
+
+def shop_panel_container(
+    title: str,
+    description: str,
+    image_url: str | None = None,
+    thumbnail_url: str | None = None,
+) -> discord.ui.Container:
+    """Isi panel /settings shop_panel -- staff isi title/description/gambar
+    sendiri lewat parameter command, jadi teks (termasuk bullet list custom
+    kayak "» ...") dirender apa adanya, gak diapa-apain sama builder ini."""
+    header_text = discord.ui.TextDisplay(f"## {title}\n{description}")
+    header = (
+        discord.ui.Section(header_text, accessory=discord.ui.Thumbnail(media=thumbnail_url))
+        if thumbnail_url
+        else header_text
+    )
+
+    children: list = [header]
+    if image_url:
+        children.append(discord.ui.Separator(visible=False))
+        children.append(discord.ui.MediaGallery(discord.MediaGalleryItem(media=image_url)))
+
+    children.append(discord.ui.Separator(visible=False))
+    children.append(discord.ui.TextDisplay(_footer_line()))
+
+    return discord.ui.Container(*children, accent_colour=COLOR_PRIMARY)
+
+
 # -- Invoice ------------------------------------------------------------------
 
 def invoice_view(
