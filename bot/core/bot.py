@@ -25,6 +25,8 @@ EXTENSIONS = (
     "bot.cogs.review_photo",
     "bot.cogs.payment_proof",
     "bot.cogs.tasks",
+    "bot.cogs.panel",
+    "bot.cogs.announcement",
 )
 
 
