@@ -153,3 +153,35 @@ def render_draft_layout(draft: MessageDraft) -> discord.ui.LayoutView:
             self.add_item(container)
 
     return _DraftLayout()
+
+
+def render_draft_preview_embed(draft: MessageDraft) -> discord.Embed:
+    """Preview APPROX pake Embed biasa -- dipake Announcement Builder biar
+    staff bisa liat progress draft secara live TANPA harus posting apapun
+    ke channel tujuan dulu (beda sama Panel Builder, yang emang udah punya
+    pesan asli buat langsung di-refresh live). Ini BUKAN hasil akhir --
+    begitu beneran dikirim, isinya dirender ulang penuh pake Components V2
+    lewat render_draft_layout(), jadi bisa aja ada beda tampilan dikit."""
+    from bot.core.theme import COLOR_MUTED
+
+    lines: list[str] = []
+    if draft.description:
+        lines.append(draft.description)
+    groups = _group_blocks(draft.blocks)
+    for i, group in enumerate(groups):
+        if i > 0:
+            lines.append("⸻")
+        lines.extend(b.content for b in group)
+    description = "\n".join(lines) if lines else PLACEHOLDER_TEXT
+
+    embed = discord.Embed(title=draft.title or None, description=description, color=draft.color or COLOR_MUTED)
+    if draft.thumbnail_url:
+        embed.set_thumbnail(url=draft.thumbnail_url)
+    if draft.banner_url:
+        embed.set_image(url=draft.banner_url)
+    if draft.buttons:
+        embed.add_field(
+            name="Tombol", value=", ".join(f"[{b.label}]({b.url})" for b in draft.buttons), inline=False
+        )
+    embed.set_footer(text="Preview -- tampilan akhir bisa beda dikit (dirender pake Components V2)")
+    return embed
