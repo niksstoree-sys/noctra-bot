@@ -1,8 +1,10 @@
 """
 View builder buat command /announcement -- alur sendiri (beda dari
-/panel): draft dibangun tanpa nge-post apapun dulu, baru beneran dikirim ke
-channel tujuan pas tombol Kirim diklik. Klik Kirim lagi setelahnya
-nge-revisi pesan yang udah terkirim (bukan kirim dobel).
+/panel): draft dibangun tanpa nge-post apapun ke channel tujuan dulu,
+sambil nunjukin preview approx (embed) di panel kontrolnya sendiri. Begitu
+tombol Kirim diklik sekali, pesan beneran keposting -- abis itu tiap
+perubahan draft langsung live ke pesan yang udah terkirim itu, sama kayak
+/panel. Klik Kirim lagi abis itu = revisi, bukan ngirim dobel.
 """
 
 from __future__ import annotations
@@ -11,19 +13,36 @@ import discord
 
 from bot.ui import embeds
 from bot.ui.draft_builder_base import BaseDraftBuilderView
-from bot.utils.message_draft import render_draft_layout
+from bot.utils.message_draft import render_draft_layout, render_draft_preview_embed
 
 
 class AnnouncementBuilderView(BaseDraftBuilderView):
-    """Sama kayak PanelBuilderView soal tombol edit draft (diwarisin dari
-    BaseDraftBuilderView), tapi tombol aksinya "Kirim" bukan "Update", dan
-    channel tujuannya dipilih pas /announcement dijalanin -- bukan channel
-    saat ini kayak /panel."""
-
     def __init__(self, target_channel_id: int) -> None:
         super().__init__(timeout=1800)
         self.target_channel_id = target_channel_id
         self.sent_message_id: int | None = None
+
+    async def _after_edit(self, panel_message: discord.Message | None, client) -> None:
+        # Begitu udah pernah dikirim, tiap edit lanjutan langsung live ke
+        # pesan yang beneran keposting -- sama kayak PanelBuilderView.
+        if self.sent_message_id is not None:
+            channel = client.get_channel(self.target_channel_id)
+            if isinstance(channel, discord.TextChannel):
+                try:
+                    sent_message = await channel.fetch_message(self.sent_message_id)
+                    await sent_message.edit(view=render_draft_layout(self.draft))
+                except (discord.NotFound, discord.HTTPException):
+                    pass
+
+        # Sebelum (atau sesudah) dikirim, panel kontrolnya sendiri selalu
+        # nunjukin preview approx (embed) -- ini yang jawab "belum ada
+        # preview" waktu draft belum pernah diposting ke channel asli.
+        if panel_message is None:
+            return
+        try:
+            await panel_message.edit(embed=render_draft_preview_embed(self.draft), view=self)
+        except discord.HTTPException:
+            pass
 
     @discord.ui.button(label="Kirim", style=discord.ButtonStyle.success, row=4)
     async def send_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -36,7 +55,6 @@ class AnnouncementBuilderView(BaseDraftBuilderView):
         layout = render_draft_layout(self.draft)
 
         if self.sent_message_id is None:
-            # Belum pernah dikirim -- posting pesan baru.
             try:
                 sent = await channel.send(view=layout)
             except discord.HTTPException as exc:
@@ -44,12 +62,14 @@ class AnnouncementBuilderView(BaseDraftBuilderView):
                 return
             self.sent_message_id = sent.id
             await interaction.followup.send(
-                embed=embeds.success_embed(f"Pengumuman udah dikirim ke {channel.mention}."), ephemeral=True
+                embed=embeds.success_embed(
+                    f"Pengumuman udah dikirim ke {channel.mention}. Perubahan berikutnya bakal langsung "
+                    "live ke pesan itu."
+                ),
+                ephemeral=True,
             )
             return
 
-        # Udah pernah dikirim sebelumnya -- klik Kirim lagi berarti revisi,
-        # bukan ngirim salinan baru.
         try:
             sent_message = await channel.fetch_message(self.sent_message_id)
             await sent_message.edit(view=layout)

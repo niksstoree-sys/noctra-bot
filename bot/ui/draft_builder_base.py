@@ -5,8 +5,9 @@ sama PanelBuilderView (/panel) dan AnnouncementBuilderView (/announcement).
 Semua tombol yang cuma NGUBAH DRAFT (Title, Description, Add Line,
 Thumbnail, Banner, Color, Undo, Reset, Add Link, sisip separator, Add
 Button, Manage Buttons) ada di sini -- dua-duanya sama persis butuhnya.
-Yang beda cuma tombol aksi akhir (Update vs Kirim), itu didefinisiin
-masing-masing di subclass-nya sendiri karena alurnya emang beda.
+Yang beda cuma tombol aksi akhir (Update vs Kirim) DAN cara nunjukin live
+preview-nya, itu didefinisiin masing-masing di subclass lewat override
+`_after_edit()`.
 """
 
 from __future__ import annotations
@@ -86,9 +87,10 @@ class ManageButtonsView(discord.ui.View):
     """Sub-view buat hapus salah satu tombol yang udah ditambahin -- pake
     Select (bukan Modal, soalnya Modal gak bisa punya Select menu)."""
 
-    def __init__(self, builder: "BaseDraftBuilderView") -> None:
+    def __init__(self, builder: "BaseDraftBuilderView", panel_message: discord.Message | None) -> None:
         super().__init__(timeout=300)
         self.builder = builder
+        self.panel_message = panel_message
         options = [
             discord.SelectOption(label=b.label[:100], description=b.url[:100], value=str(i))
             for i, b in enumerate(builder.draft.buttons)
@@ -105,6 +107,7 @@ class ManageButtonsView(discord.ui.View):
         await interaction.response.edit_message(
             embed=embeds.success_embed(f"Tombol **{removed.label}** dihapus dari draft."), view=None
         )
+        await self.builder._after_edit(self.panel_message, interaction.client)
 
 
 class BaseDraftBuilderView(discord.ui.View):
@@ -136,11 +139,14 @@ class BaseDraftBuilderView(discord.ui.View):
         select.callback = self._on_separator_select
         self.add_item(select)
 
-    async def _refresh_panel(self, panel_message: discord.Message | None) -> None:
-        """Push perubahan (biasanya cuma opsi Select yang baru) balik ke
-        pesan panel kontrolnya sendiri -- dipanggil dari dalem modal
-        on_submit, di mana `interaction.response` udah kepake buat toast
-        konfirmasi, jadi gak bisa dobel dipake buat edit_message."""
+    async def _after_edit(self, panel_message: discord.Message | None, client) -> None:
+        """Dipanggil abis draft berubah, dari button/modal action manapun
+        -- ini yang bikin live preview. Default-nya cuma refresh tombol
+        panel sendiri (buat kasus opsi separator berubah); subclass WAJIB
+        override buat nentuin gimana live preview-nya masing-masing:
+        PanelBuilderView dorong ke pesan target asli, AnnouncementBuilderView
+        nunjukin approx-preview di panel sendiri (belum ada pesan asli
+        sampe Kirim diklik)."""
         if panel_message is None:
             return
         try:
@@ -166,7 +172,8 @@ class BaseDraftBuilderView(discord.ui.View):
                         break
             self.draft.blocks.insert(insert_at, SeparatorBlock())
         self._build_separator_select()
-        await interaction.response.edit_message(view=self)
+        await interaction.response.defer()
+        await self._after_edit(interaction.message, interaction.client)
 
     # -- Title / Description / Add Line ------------------------------------
 
@@ -177,10 +184,11 @@ class BaseDraftBuilderView(discord.ui.View):
         async def on_submit(inter: discord.Interaction, value: str) -> None:
             self._snapshot()
             self.draft.title = value or None
-            await inter.response.send_message(
+            await inter.response.defer(ephemeral=True)
+            await self._after_edit(panel_message, inter.client)
+            await inter.followup.send(
                 embed=embeds.success_embed("Judul diatur." if value else "Judul dihapus."), ephemeral=True
             )
-            await self._refresh_panel(panel_message)
 
         modal = _SingleFieldModal(
             "Atur Judul", "Judul (kosongin buat hapus)", default=self.draft.title,
@@ -195,10 +203,11 @@ class BaseDraftBuilderView(discord.ui.View):
         async def on_submit(inter: discord.Interaction, value: str) -> None:
             self._snapshot()
             self.draft.description = value or None
-            await inter.response.send_message(
+            await inter.response.defer(ephemeral=True)
+            await self._after_edit(panel_message, inter.client)
+            await inter.followup.send(
                 embed=embeds.success_embed("Deskripsi diatur." if value else "Deskripsi dihapus."), ephemeral=True
             )
-            await self._refresh_panel(panel_message)
 
         modal = _SingleFieldModal(
             "Atur Deskripsi", "Deskripsi (kosongin buat hapus)", style=discord.TextStyle.paragraph,
@@ -217,8 +226,9 @@ class BaseDraftBuilderView(discord.ui.View):
             self._snapshot()
             self.draft.blocks.append(TextBlock(value))
             self._build_separator_select()
-            await inter.response.send_message(embed=embeds.success_embed("Baris baru ditambahin."), ephemeral=True)
-            await self._refresh_panel(panel_message)
+            await inter.response.defer(ephemeral=True)
+            await self._after_edit(panel_message, inter.client)
+            await inter.followup.send(embed=embeds.success_embed("Baris baru ditambahin."), ephemeral=True)
 
         modal = _SingleFieldModal(
             "Tambah Baris", "Teks", style=discord.TextStyle.paragraph, max_length=1000,
@@ -235,10 +245,11 @@ class BaseDraftBuilderView(discord.ui.View):
         async def on_submit(inter: discord.Interaction, value: str) -> None:
             self._snapshot()
             self.draft.thumbnail_url = value or None
-            await inter.response.send_message(
+            await inter.response.defer(ephemeral=True)
+            await self._after_edit(panel_message, inter.client)
+            await inter.followup.send(
                 embed=embeds.success_embed("Thumbnail diatur." if value else "Thumbnail dihapus."), ephemeral=True
             )
-            await self._refresh_panel(panel_message)
 
         modal = _SingleFieldModal(
             "Atur Thumbnail", "URL gambar (kosongin buat hapus)", default=self.draft.thumbnail_url,
@@ -253,10 +264,11 @@ class BaseDraftBuilderView(discord.ui.View):
         async def on_submit(inter: discord.Interaction, value: str) -> None:
             self._snapshot()
             self.draft.banner_url = value or None
-            await inter.response.send_message(
+            await inter.response.defer(ephemeral=True)
+            await self._after_edit(panel_message, inter.client)
+            await inter.followup.send(
                 embed=embeds.success_embed("Banner diatur." if value else "Banner dihapus."), ephemeral=True
             )
-            await self._refresh_panel(panel_message)
 
         modal = _SingleFieldModal(
             "Atur Banner", "URL gambar banner (kosongin buat hapus)", default=self.draft.banner_url,
@@ -283,10 +295,9 @@ class BaseDraftBuilderView(discord.ui.View):
                 return
             self._snapshot()
             self.draft.color = color_int
-            await inter.response.send_message(
-                embed=embeds.success_embed(f"Warna diatur ke #{hex_value.upper()}."), ephemeral=True
-            )
-            await self._refresh_panel(panel_message)
+            await inter.response.defer(ephemeral=True)
+            await self._after_edit(panel_message, inter.client)
+            await inter.followup.send(embed=embeds.success_embed(f"Warna diatur ke #{hex_value.upper()}."), ephemeral=True)
 
         modal = _SingleFieldModal(
             "Atur Warna", "Kode warna hex (tanpa #)", max_length=6, placeholder="7C5CFF",
@@ -301,7 +312,8 @@ class BaseDraftBuilderView(discord.ui.View):
             return
         self.draft = self.undo_stack.pop()
         self._build_separator_select()
-        await interaction.response.edit_message(view=self)
+        await interaction.response.defer()
+        await self._after_edit(interaction.message, interaction.client)
         await interaction.followup.send(embed=embeds.success_embed("Draft di-undo ke versi sebelumnya."), ephemeral=True)
 
     @discord.ui.button(label="Reset", style=discord.ButtonStyle.danger, row=2)
@@ -309,7 +321,8 @@ class BaseDraftBuilderView(discord.ui.View):
         self._snapshot()
         self.draft = MessageDraft()
         self._build_separator_select()
-        await interaction.response.edit_message(view=self)
+        await interaction.response.defer()
+        await self._after_edit(interaction.message, interaction.client)
         await interaction.followup.send(
             embed=embeds.success_embed("Draft direset. Kepencet gak sengaja? Tinggal klik Undo."), ephemeral=True
         )
@@ -327,8 +340,9 @@ class BaseDraftBuilderView(discord.ui.View):
             self._snapshot()
             self.draft.blocks.append(TextBlock(f"[{text or url}]({url})"))
             self._build_separator_select()
-            await inter.response.send_message(embed=embeds.success_embed("Link ditambahin sebagai baris teks."), ephemeral=True)
-            await self._refresh_panel(panel_message)
+            await inter.response.defer(ephemeral=True)
+            await self._after_edit(panel_message, inter.client)
+            await inter.followup.send(embed=embeds.success_embed("Link ditambahin sebagai baris teks."), ephemeral=True)
 
         modal = _TwoFieldModal("Tambah Link", "Teks yang ditampilin", "URL", on_submit_callback=on_submit)
         await interaction.response.send_modal(modal)
@@ -352,8 +366,9 @@ class BaseDraftBuilderView(discord.ui.View):
                 return
             self._snapshot()
             self.draft.buttons.append(ButtonSpec(label or "Klik di sini", url))
-            await inter.response.send_message(embed=embeds.success_embed(f"Tombol **{label}** ditambahin."), ephemeral=True)
-            await self._refresh_panel(panel_message)
+            await inter.response.defer(ephemeral=True)
+            await self._after_edit(panel_message, inter.client)
+            await inter.followup.send(embed=embeds.success_embed(f"Tombol **{label}** ditambahin."), ephemeral=True)
 
         modal = _TwoFieldModal("Tambah Tombol", "Label tombol", "URL", max1=80, on_submit_callback=on_submit)
         await interaction.response.send_modal(modal)
@@ -365,7 +380,7 @@ class BaseDraftBuilderView(discord.ui.View):
                 embed=embeds.info_embed("Kelola Tombol", "Belum ada tombol yang ditambahin."), ephemeral=True
             )
             return
-        view = ManageButtonsView(self)
+        view = ManageButtonsView(self, interaction.message)
         await interaction.response.send_message(
             embed=embeds.info_embed("Kelola Tombol", "Pilih tombol yang mau dihapus."), view=view, ephemeral=True
         )
