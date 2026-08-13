@@ -101,8 +101,9 @@ class NoctraBot(commands.Bot):
         # the right button on demand whenever a matching custom_id comes in,
         # so this survives restarts with no per-order bookkeeping needed.
         from bot.ui.views import OrderActionButton, ReplyButton, ReviewStartButton
+        from bot.ui.panel_reply_button import PanelReplyButton
 
-        self.add_dynamic_items(OrderActionButton, ReviewStartButton, ReplyButton)
+        self.add_dynamic_items(OrderActionButton, ReviewStartButton, ReplyButton, PanelReplyButton)
         logger.info("Dynamic items registered.")
 
     async def on_ready(self) -> None:
