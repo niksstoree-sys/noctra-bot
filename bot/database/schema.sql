@@ -144,3 +144,15 @@ CREATE TABLE IF NOT EXISTS settings (
     key    TEXT PRIMARY KEY,
     value  TEXT
 );
+
+-- Isi tombol "Reply" yang ditambahin lewat /panel atau /announcement --
+-- beda sama tombol link (yang cuma nyimpen URL langsung di komponen
+-- pesannya), tombol reply butuh nyimpen teks balasannya di sini biar bisa
+-- dipanggil balik pas diklik, bahkan abis bot restart (custom_id-nya cuma
+-- nyimpen ID row ini, bukan teksnya langsung).
+CREATE TABLE IF NOT EXISTS panel_reply_buttons (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    label       TEXT NOT NULL,
+    reply_text  TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
