@@ -33,8 +33,20 @@ Block = TextBlock | SeparatorBlock
 
 @dataclass
 class ButtonSpec:
+    """Satu tombol di ActionRow -- dua tipe: tombol LINK (`url` diisi,
+    Discord buka link-nya, bot gak pernah dapet interaction) atau tombol
+    REPLY (`reply_button_id` diisi, nunjuk ke row di tabel
+    panel_reply_buttons, klik-nya beneran masuk ke bot dan balas pesan).
+    Cuma satu dari dua yang keisi -- gak ada yang isi keduanya."""
+
     label: str
-    url: str
+    emoji: str | None = None
+    url: str | None = None
+    reply_button_id: int | None = None
+
+    @property
+    def is_link(self) -> bool:
+        return self.url is not None
 
 
 @dataclass
@@ -64,7 +76,7 @@ class MessageDraft:
             thumbnail_url=self.thumbnail_url,
             banner_url=self.banner_url,
             color=self.color,
-            buttons=[ButtonSpec(b.label, b.url) for b in self.buttons],
+            buttons=[ButtonSpec(b.label, b.emoji, b.url, b.reply_button_id) for b in self.buttons],
         )
 
     def line_count(self) -> int:
@@ -129,14 +141,27 @@ def render_draft_container(draft: MessageDraft) -> discord.ui.Container:
 
 
 def render_draft_action_row(draft: MessageDraft) -> discord.ui.ActionRow | None:
-    """ActionRow berisi tombol link yang ditambahin lewat "Add Button".
-    Return None kalau belum ada tombol -- caller yang mutusin mau nempelin
-    ke Container atau skip sama sekali."""
+    """ActionRow berisi tombol yang ditambahin lewat "Add Link Button" /
+    "Add Reply Button". Return None kalau belum ada tombol -- caller yang
+    mutusin mau nempelin ke Container atau skip sama sekali."""
     if not draft.buttons:
         return None
     row = discord.ui.ActionRow()
     for b in draft.buttons[:5]:  # ActionRow maksimal 5 komponen
-        row.add_item(discord.ui.Button(label=b.label[:80], style=discord.ButtonStyle.link, url=b.url))
+        if b.is_link:
+            row.add_item(
+                discord.ui.Button(label=b.label[:80], style=discord.ButtonStyle.link, url=b.url, emoji=b.emoji)
+            )
+        else:
+            # Tombol Reply -- custom_id-nya harus PERSIS format yang
+            # dikenalin PanelReplyButton (lihat bot.ui.panel_reply_button)
+            # biar bot bisa nangkep klik-nya dan tetep jalan abis restart.
+            row.add_item(
+                discord.ui.Button(
+                    label=b.label[:80], style=discord.ButtonStyle.secondary, emoji=b.emoji,
+                    custom_id=f"noctra:panelbtn:{b.reply_button_id}",
+                )
+            )
     return row
 
 
@@ -180,8 +205,13 @@ def render_draft_preview_embed(draft: MessageDraft) -> discord.Embed:
     if draft.banner_url:
         embed.set_image(url=draft.banner_url)
     if draft.buttons:
-        embed.add_field(
-            name="Tombol", value=", ".join(f"[{b.label}]({b.url})" for b in draft.buttons), inline=False
-        )
+        parts = []
+        for b in draft.buttons:
+            prefix = f"{b.emoji} " if b.emoji else ""
+            if b.is_link:
+                parts.append(f"{prefix}[{b.label}]({b.url})")
+            else:
+                parts.append(f"{prefix}**{b.label}** _(balasan)_")
+        embed.add_field(name="Tombol", value=", ".join(parts), inline=False)
     embed.set_footer(text="Preview -- tampilan akhir bisa beda dikit (dirender pake Components V2)")
     return embed
