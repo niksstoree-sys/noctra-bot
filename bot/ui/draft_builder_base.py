@@ -18,6 +18,8 @@ import discord
 
 from bot.ui import embeds
 from bot.utils.message_draft import ButtonSpec, MessageDraft, SeparatorBlock, TextBlock
+from bot.database.queries import panel_buttons as panel_buttons_q
+from bot.utils.validators import is_valid_emoji
 
 MAX_UNDO_HISTORY = 20
 MAX_BUTTONS = 5
@@ -83,6 +85,46 @@ class _TwoFieldModal(discord.ui.Modal):
         )
 
 
+class _ThreeFieldModal(discord.ui.Modal):
+    """Modal tiga TextInput -- dipake buat Add Link Button dan Add Reply
+    Button (label + emoji opsional + url/isi balasan)."""
+
+    def __init__(
+        self,
+        title: str,
+        label1: str,
+        label2: str,
+        label3: str,
+        *,
+        max1: int = 80,
+        max2: int = 20,
+        max3: int = 500,
+        style3: discord.TextStyle = discord.TextStyle.short,
+        placeholder3: str | None = None,
+        on_submit_callback: Callable[[discord.Interaction, str, str, str], Awaitable[None]],
+    ) -> None:
+        super().__init__(title=title[:45])
+        self.field1 = discord.ui.TextInput(label=label1[:45], max_length=max1)
+        self.field2 = discord.ui.TextInput(
+            label=label2[:45], max_length=max2, required=False, placeholder="Kosongin kalau gak perlu"
+        )
+        self.field3 = discord.ui.TextInput(
+            label=label3[:45], max_length=max3, style=style3, placeholder=placeholder3
+        )
+        self.add_item(self.field1)
+        self.add_item(self.field2)
+        self.add_item(self.field3)
+        self._on_submit_callback = on_submit_callback
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await self._on_submit_callback(
+            interaction,
+            str(self.field1.value).strip(),
+            str(self.field2.value).strip(),
+            str(self.field3.value).strip(),
+        )
+
+
 class ManageButtonsView(discord.ui.View):
     """Sub-view buat hapus salah satu tombol yang udah ditambahin -- pake
     Select (bukan Modal, soalnya Modal gak bisa punya Select menu)."""
@@ -92,7 +134,11 @@ class ManageButtonsView(discord.ui.View):
         self.builder = builder
         self.panel_message = panel_message
         options = [
-            discord.SelectOption(label=b.label[:100], description=b.url[:100], value=str(i))
+            discord.SelectOption(
+                label=b.label[:100],
+                description=(b.url[:100] if b.is_link else "Tombol balasan pesan"),
+                value=str(i),
+            )
             for i, b in enumerate(builder.draft.buttons)
         ]
         select = discord.ui.Select(placeholder="Pilih tombol buat dihapus...", options=options)
@@ -347,10 +393,10 @@ class BaseDraftBuilderView(discord.ui.View):
         modal = _TwoFieldModal("Tambah Link", "Teks yang ditampilin", "URL", on_submit_callback=on_submit)
         await interaction.response.send_modal(modal)
 
-    # -- Add Button / Manage Buttons ----------------------------------------
+    # -- Add Link Button / Add Reply Button / Manage Buttons -----------------
 
-    @discord.ui.button(label="Add Button", style=discord.ButtonStyle.secondary, row=4)
-    async def add_button_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    @discord.ui.button(label="Add Link Button", style=discord.ButtonStyle.secondary, row=4)
+    async def add_link_button_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if len(self.draft.buttons) >= MAX_BUTTONS:
             await interaction.response.send_message(
                 embed=embeds.error_embed(f"Maksimal {MAX_BUTTONS} tombol per pesan."), ephemeral=True
@@ -358,19 +404,56 @@ class BaseDraftBuilderView(discord.ui.View):
             return
         panel_message = interaction.message
 
-        async def on_submit(inter: discord.Interaction, label: str, url: str) -> None:
+        async def on_submit(inter: discord.Interaction, label: str, emoji: str, url: str) -> None:
             if not url.startswith(("http://", "https://")):
                 await inter.response.send_message(
                     embed=embeds.error_embed("URL harus mulai dari http:// atau https://"), ephemeral=True
                 )
                 return
+            if emoji and not is_valid_emoji(emoji):
+                await inter.response.send_message(embed=embeds.error_embed("Emoji-nya gak valid."), ephemeral=True)
+                return
             self._snapshot()
-            self.draft.buttons.append(ButtonSpec(label or "Klik di sini", url))
+            self.draft.buttons.append(ButtonSpec(label=label or "Klik di sini", emoji=emoji or None, url=url))
             await inter.response.defer(ephemeral=True)
             await self._after_edit(panel_message, inter.client)
-            await inter.followup.send(embed=embeds.success_embed(f"Tombol **{label}** ditambahin."), ephemeral=True)
+            await inter.followup.send(embed=embeds.success_embed(f"Tombol link **{label}** ditambahin."), ephemeral=True)
 
-        modal = _TwoFieldModal("Tambah Tombol", "Label tombol", "URL", max1=80, on_submit_callback=on_submit)
+        modal = _ThreeFieldModal(
+            "Tambah Tombol Link", "Label tombol", "Emoji (opsional)", "URL",
+            placeholder3="https://...", on_submit_callback=on_submit,
+        )
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="Add Reply Button", style=discord.ButtonStyle.secondary, row=4)
+    async def add_reply_button_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if len(self.draft.buttons) >= MAX_BUTTONS:
+            await interaction.response.send_message(
+                embed=embeds.error_embed(f"Maksimal {MAX_BUTTONS} tombol per pesan."), ephemeral=True
+            )
+            return
+        panel_message = interaction.message
+
+        async def on_submit(inter: discord.Interaction, label: str, emoji: str, reply_text: str) -> None:
+            if not reply_text:
+                await inter.response.send_message(embed=embeds.error_embed("Isi balasannya gak boleh kosong."), ephemeral=True)
+                return
+            if emoji and not is_valid_emoji(emoji):
+                await inter.response.send_message(embed=embeds.error_embed("Emoji-nya gak valid."), ephemeral=True)
+                return
+            db = inter.client.db  # type: ignore[attr-defined]
+            label = label or "Klik di sini"
+            button_id = await panel_buttons_q.create_reply_button(db, label, reply_text)
+            self._snapshot()
+            self.draft.buttons.append(ButtonSpec(label=label, emoji=emoji or None, reply_button_id=button_id))
+            await inter.response.defer(ephemeral=True)
+            await self._after_edit(panel_message, inter.client)
+            await inter.followup.send(embed=embeds.success_embed(f"Tombol balasan **{label}** ditambahin."), ephemeral=True)
+
+        modal = _ThreeFieldModal(
+            "Tambah Tombol Balasan", "Label tombol", "Emoji (opsional)", "Pesan yang muncul pas diklik",
+            max3=1000, style3=discord.TextStyle.paragraph, on_submit_callback=on_submit,
+        )
         await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="Manage Buttons", style=discord.ButtonStyle.secondary, row=4)
