@@ -24,10 +24,16 @@ class PanelBuilderView(BaseDraftBuilderView):
         self.target_channel_id = target_channel_id
         self.target_message_id = target_message_id
 
-    async def _after_edit(self, panel_message: discord.Message | None, client) -> None:
-        await super()._after_edit(panel_message, client)  # refresh opsi select di panel sendiri
+    async def _after_edit(self, interaction: discord.Interaction) -> None:
+        # Response PERTAMA interaction ini WAJIB edit_message -- ini yang
+        # ngerefresh pesan panel sendiri (opsi Select dsb).
+        await interaction.response.edit_message(view=self)
 
-        channel = client.get_channel(self.target_channel_id)
+        # Push live ke pesan TARGET asli -- ini pesan biasa (bukan
+        # ephemeral), jadi aman di-edit lewat channel.fetch_message() +
+        # .edit() biasa pake kredensial bot, gak perlu lewat mekanisme
+        # response interaction sama sekali.
+        channel = interaction.client.get_channel(self.target_channel_id)  # type: ignore[attr-defined]
         if not isinstance(channel, discord.TextChannel):
             return
         try:

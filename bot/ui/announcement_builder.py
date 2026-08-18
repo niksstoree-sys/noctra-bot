@@ -22,27 +22,23 @@ class AnnouncementBuilderView(BaseDraftBuilderView):
         self.target_channel_id = target_channel_id
         self.sent_message_id: int | None = None
 
-    async def _after_edit(self, panel_message: discord.Message | None, client) -> None:
-        # Begitu udah pernah dikirim, tiap edit lanjutan langsung live ke
-        # pesan yang beneran keposting -- sama kayak PanelBuilderView.
+    async def _after_edit(self, interaction: discord.Interaction) -> None:
+        # Response PERTAMA interaction ini WAJIB edit_message -- ini yang
+        # nunjukin preview approx (embed) di panel sendiri, satu-satunya
+        # cara valid buat ngedit pesan ephemeral ini.
+        await interaction.response.edit_message(embed=render_draft_preview_embed(self.draft), view=self)
+
+        # Begitu udah pernah dikirim, tiap edit lanjutan JUGA langsung live
+        # ke pesan yang beneran keposting -- pesan itu bukan ephemeral,
+        # jadi aman di-edit lewat channel.fetch_message() + .edit() biasa.
         if self.sent_message_id is not None:
-            channel = client.get_channel(self.target_channel_id)
+            channel = interaction.client.get_channel(self.target_channel_id)  # type: ignore[attr-defined]
             if isinstance(channel, discord.TextChannel):
                 try:
                     sent_message = await channel.fetch_message(self.sent_message_id)
                     await sent_message.edit(view=render_draft_layout(self.draft))
                 except (discord.NotFound, discord.HTTPException):
                     pass
-
-        # Sebelum (atau sesudah) dikirim, panel kontrolnya sendiri selalu
-        # nunjukin preview approx (embed) -- ini yang jawab "belum ada
-        # preview" waktu draft belum pernah diposting ke channel asli.
-        if panel_message is None:
-            return
-        try:
-            await panel_message.edit(embed=render_draft_preview_embed(self.draft), view=self)
-        except discord.HTTPException:
-            pass
 
     @discord.ui.button(label="Kirim", style=discord.ButtonStyle.success, row=4)
     async def send_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
